@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. Moteur de Recherche Mondial (Chartfox via Cloudflare) ---
+// --- 5. Moteur Mondial (Mode Diagnostic Extrême) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -63,7 +63,6 @@ async function performSearch() {
     
     let foundCharts = [];
     
-    // Filet de sécurité VFR France
     if (icao.startsWith('LF')) {
         const dates = getAiracDates();
         const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
@@ -75,10 +74,7 @@ async function performSearch() {
     try {
         const response = await fetch(proxyUrl);
         
-        if (!response.ok) {
-            document.getElementById('diag-1').innerHTML = `❌ 1. Erreur Serveur (HTTP ${response.status}).`;
-            throw new Error("HTTP Failed");
-        }
+        if (!response.ok) throw new Error("HTTP Failed");
 
         const textData = await response.text(); 
         
@@ -99,12 +95,13 @@ async function performSearch() {
         }
 
         if (chartsData.length > 0) {
-            document.getElementById('diag-2').innerHTML = `✅ 2. ${chartsData.length} cartes extraites pour ${icao}.`;
+            // L'ADN DE LA CARTE : On affiche la structure exacte de la première carte trouvée
+            const chartKeys = Object.keys(chartsData[0]).join(', ');
+            document.getElementById('diag-2').innerHTML = `✅ 2. ${chartsData.length} cartes. <br><span style="color:#f1c40f">Clés : [${chartKeys}]</span>`;
             
             chartsData.forEach(chart => {
                 let type = 'GEN';
                 
-                // LE BOUCLIER ANTI-CRASH : On force la conversion en texte (String)
                 const cType = chart.type ? String(chart.type).toUpperCase() : '';
                 const cName = chart.name ? String(chart.name).toUpperCase() : '';
 
@@ -115,38 +112,40 @@ async function performSearch() {
 
                 const isDuplicateVAC = type === 'GEN' && cName.includes('VAC') && icao.startsWith('LF');
                 
-                const chartUrl = chart.url || chart.link || chart.file_url || chart.pdf_path;
+                // LE TEST FORCÉ : On prend toutes les possibilités, ou on met "INCONNU"
+                const chartUrl = chart.url || chart.link || chart.file_url || chart.pdf_path || chart.href || chart.file || "INCONNU";
                 
-                if (!isDuplicateVAC && chartUrl) {
+                if (!isDuplicateVAC) {
                     foundCharts.push({
                         id: chart.chartId || chart.id || `${icao}_${Math.random()}`,
                         icao: icao,
                         type: type,
-                        name: chart.name || 'Carte IFR',
+                        name: chart.name || 'CARTE SANS NOM',
                         url: chartUrl
                     });
                 }
             });
             
-            document.getElementById('diag-3').innerHTML = `🏁 3. Création de l'interface...`;
+            document.getElementById('diag-3').innerHTML = `🏁 3. Création forcée de l'interface...`;
         } else {
             document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée dans la base de données pour cet aéroport.`;
         }
 
     } catch (e) { 
         if (e.message !== "HTTP Failed" && e.message !== "Session Expired") {
-            document.getElementById('diag-1').innerHTML = `❌ 1. Erreur d'analyse des données : ${e.message}`;
+            document.getElementById('diag-1').innerHTML = `❌ 1. Erreur d'analyse : ${e.message}`;
         }
     }
 
     const hasError = document.getElementById('diag-1').innerHTML.includes('❌') || document.getElementById('diag-2').innerHTML.includes('⚠️');
     
+    // On bloque 10 secondes pour que vous puissiez me copier les "Clés" jaunes du diagnostic !
     setTimeout(() => {
         currentCharts = foundCharts;
         currentFilter = 'ALL'; 
         renderTabs();
         renderCategories();
-    }, hasError ? 5000 : 300); 
+    }, 10000); 
 }
 
 // --- 6. Rendu Graphique (Onglets, Listes, Dock) ---
