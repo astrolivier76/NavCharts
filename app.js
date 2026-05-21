@@ -1,7 +1,8 @@
 // --- 1. État de l'application et Mémoire Cache ---
 let currentCharts = [];
 let pinnedCharts = [];
-const pdfCache = {}; // Conserve les cartes déjà chargées pour un accès instantané
+const pdfCache = {}; 
+let currentFilter = 'ALL';
 
 // --- 2. Récupération des éléments du DOM ---
 const searchBtn = document.getElementById('search-btn');
@@ -113,21 +114,71 @@ async function performSearch() {
     }
     
     currentCharts = foundCharts;
+    currentFilter = 'ALL';
     renderCategories();
 }
 
-// --- 6. Afficher la liste principale des cartes ---
+// --- 6. Afficher la liste principale des cartes (AVEC ONGLETS) ---
 function renderCategories() {
     categoriesContainer.innerHTML = ''; 
+
+    if (currentCharts.length === 0) return;
+
+    // 1. Création de la barre d'onglets
+    const tabsDiv = document.createElement('div');
+    tabsDiv.className = 'tabs-container';
+    
+    // Définition de nos catégories
+    const tabs = [
+        { id: 'ALL', label: 'TOUT' },
+        { id: 'INFO', label: 'INFO' },
+        { id: 'TAXI', label: 'TAXI' },
+        { id: 'SID', label: 'SID' },
+        { id: 'STAR', label: 'STAR' },
+        { id: 'APPR', label: 'APPR' }
+    ];
+
+    // Génération des boutons
+    tabs.forEach(tab => {
+        const btn = document.createElement('button');
+        btn.className = `tab-btn ${currentFilter === tab.id ? 'active' : ''}`;
+        btn.textContent = tab.label;
+        btn.addEventListener('click', () => {
+            currentFilter = tab.id;
+            renderCategories(); // On rafraîchit la liste avec le nouveau filtre
+        });
+        tabsDiv.appendChild(btn);
+    });
+
+    categoriesContainer.appendChild(tabsDiv);
+
+    // 2. Création de la liste des cartes
     const ul = document.createElement('ul');
     ul.className = 'chart-list';
 
-    currentCharts.forEach(chart => {
+    // Application du filtre !
+    const filteredCharts = currentFilter === 'ALL' 
+        ? currentCharts 
+        : currentCharts.filter(c => c.type === currentFilter);
+
+    // Affichage des cartes correspondantes
+    filteredCharts.forEach(chart => {
         const li = createChartElement(chart);
         ul.appendChild(li);
     });
 
-    categoriesContainer.appendChild(ul);
+    // Message si un onglet est vide (ex: pas de SID sur un petit aérodrome)
+    if (filteredCharts.length === 0) {
+        const emptyMsg = document.createElement('p');
+        emptyMsg.style.padding = '20px';
+        emptyMsg.style.color = '#666';
+        emptyMsg.style.fontSize = '12px';
+        emptyMsg.style.textAlign = 'center';
+        emptyMsg.textContent = `Aucune carte de type ${currentFilter} disponible.`;
+        categoriesContainer.appendChild(emptyMsg);
+    } else {
+        categoriesContainer.appendChild(ul);
+    }
 }
 
 // --- 7. Créer une ligne de carte ---
