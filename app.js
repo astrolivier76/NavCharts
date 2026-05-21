@@ -5,7 +5,7 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre NOUVEAU proxy mondial Cloudflare
+// L'URL de votre proxy mondial Cloudflare
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories "Chartfox style"
@@ -32,7 +32,7 @@ const viewerPlaceholder = document.getElementById('viewer-placeholder');
 searchBtn.addEventListener('click', performSearch);
 searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') performSearch(); });
 
-// --- 4. Outil AIRAC (Filet de sécurité pour la France) ---
+// --- 4. Outil AIRAC (Filet de sécurité VFR pour la France) ---
 function getAiracDates() {
     const baseAirac = new Date('2024-01-25T00:00:00Z');
     const now = new Date();
@@ -45,23 +45,23 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. Moteur de Recherche Mondial (Sonde de Diagnostic Chartfox) ---
+// --- 5. Moteur de Recherche Mondial (Chartfox via Cloudflare) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = icao;
-    
-    categoriesContainer.innerHTML = `
-        <div style='padding: 15px; color: #00ff00; font-size: 12px; font-family: monospace; background: #111; border: 1px solid #333; margin: 10px; border-radius: 4px; box-shadow: inset 0 0 10px #000;'>
-            <strong style='color: #ff00ff;'>[SONDE DIAGNOSTIC CHARTFOX - ${icao}]</strong><br><br>
-            <span id="diag-1">⏳ 1. Envoi du Cookie Secret...</span><br>
-            <span id="diag-2"></span><br>
-            <span id="diag-3"></span>
-        </div>
-    `;
+    categoriesContainer.innerHTML = "<p class='empty-msg'>📡 Connexion au réseau mondial en cours...</p>";
     
     let foundCharts = [];
+    
+    // Filet de sécurité : On ajoute toujours la VAC française générée en local
+    if (icao.startsWith('LF')) {
+        const dates = getAiracDates();
+        const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
+        foundCharts.push({ id: `${icao}_VAC_SIA`, icao: icao, type: 'GEN', name: `VAC VFR (SIA)`, url: siaVacUrl });
+    }
+
     const proxyUrl = `${MY_PROXY}?icao=${icao}`;
 
     try {
@@ -69,37 +69,61 @@ async function performSearch() {
         if (response.ok) {
             const data = await response.json(); 
             
-            // LA SONDE : On regarde le nom de la page (component) que Chartfox nous a envoyé
-            let pageName = data.component || "Page Inconnue";
-            document.getElementById('diag-1').innerHTML = `✅ 1. Réponse de Chartfox : Page <strong>[${pageName}]</strong>`;
+            let chartsData = [];
             
-            if (pageName.includes('Login') || pageName.includes('Auth')) {
-                document.getElementById('diag-2').innerHTML = `❌ 2. BLOCAGE : Chartfox a détecté le changement d'IP et exige une reconnexion.`;
-            } else {
-                // Si on a passé la sécurité, on inspecte la structure des données reçues
-                let dataKeys = Object.keys(data.props || {}).join(', ');
-                document.getElementById('diag-2').innerHTML = `🔍 2. Structure reçue : ${dataKeys}`;
-                
-                if (data.props && data.props.airport && data.props.airport.charts) {
-                     document.getElementById('diag-3').innerHTML = `✅ 3. Cartes trouvées : ${data.props.airport.charts.length}`;
-                } else {
-                     document.getElementById('diag-3').innerHTML = `⚠️ 3. Les cartes ne sont pas dans le dossier 'airport.charts'.`;
-                }
+            // LA CORRECTION : On fouille dans le fameux dossier 'groupedCharts' découvert par la sonde !
+            if (data.props && data.props.groupedCharts) {
+                // Chartfox groupe les cartes par catégorie, on rassemble tout dans une seule liste
+                Object.values(data.props.groupedCharts).forEach(group => {
+                    if (Array.isArray(group)) {
+                        chartsData.push(...group);
+                    }
+                });
+            } else if (data.props && data.props.airport && data.props.airport.charts) {
+                // Ancien format au cas où ils reviennent en arrière
+                chartsData = data.props.airport.charts;
+            }
+
+            if (chartsData.length > 0) {
+                chartsData.forEach(chart => {
+                    let type = 'GEN';
+                    const cType = chart.type ? chart.type.toUpperCase() : '';
+                    const cName = chart.name ? chart.name.toUpperCase() : '';
+
+                    // Tri des catégories Chartfox vers notre EFB
+                    if (cType === 'SID' || cName.includes('SID') || cName.includes('DEPARTURE')) type = 'SID';
+                    else if (cType === 'STAR' || cName.includes('STAR') || cName.includes('ARRIVAL')) type = 'STAR';
+                    else if (cType === 'APP' || cName.includes('ILS') || cName.includes('RNAV') || cName.includes('APPROACH')) type = 'APP';
+                    else if (cType === 'TAXI' || cType === 'GND' || cName.includes('TAXI') || cName.includes('PARKING')) type = 'GND';
+
+                    // On évite d'afficher 2 fois la carte VAC si Chartfox l'a déjà
+                    const isDuplicateVAC = type === 'GEN' && cName.includes('VAC') && icao.startsWith('LF');
+                    
+                    // Sécurité : Chartfox renvoie parfois des liens vides
+                    if (!isDuplicateVAC && chart.url) {
+                        foundCharts.push({
+                            id: chart.chartId || chart.id || `${icao}_${Math.random()}`,
+                            icao: icao,
+                            type: type,
+                            name: chart.name || 'Carte IFR',
+                            url: chart.url
+                        });
+                    }
+                });
             }
         } else {
-            document.getElementById('diag-1').innerHTML = `❌ 1. Chartfox a refusé l'accès (Erreur ${response.status}).`;
+            console.warn("Chartfox a renvoyé une erreur réseau.");
         }
     } catch (e) { 
-        document.getElementById('diag-1').innerHTML = `❌ 1. Impossible de lire le JSON (Chartfox a envoyé du HTML ?).`;
+        console.error("Erreur de liaison avec Cloudflare.");
     }
 
-    // On bloque l'affichage de la page pendant 10 secondes pour que vous ayez le temps de lire le diagnostic
-    setTimeout(() => {
-        currentCharts = foundCharts;
-        renderTabs();
-        renderCategories();
-    }, 10000); 
+    currentCharts = foundCharts;
+    currentFilter = 'ALL'; 
+    renderTabs();
+    renderCategories();
 }
+
 // --- 6. Rendu Graphique (Onglets, Listes, Dock) ---
 function renderTabs() {
     tabsContainer.innerHTML = '';
@@ -115,7 +139,7 @@ function renderTabs() {
 
 function renderCategories() {
     categoriesContainer.innerHTML = ''; 
-    if (currentCharts.length === 0) return categoriesContainer.innerHTML = "<p class='empty-msg'>Aucune carte trouvée.</p>";
+    if (currentCharts.length === 0) return categoriesContainer.innerHTML = "<p class='empty-msg'>Aucune carte trouvée pour cet aéroport.</p>";
 
     const filtered = currentFilter === 'ALL' ? currentCharts : currentCharts.filter(c => c.type === currentFilter);
     if (filtered.length === 0) return categoriesContainer.innerHTML = `<p class='empty-msg'>Aucune carte ${currentFilter}.</p>`;
@@ -193,9 +217,11 @@ function togglePin(chart) {
         pinnedCharts.splice(index, 1);
     } else {
         pinnedCharts.push(chart);
-        // Préchargement via le Proxy en Mode Fichier (?url=...)
         if (!pdfCache[chart.url]) {
-            fetch(`${MY_PROXY}?url=${encodeURIComponent(chart.url)}`)
+            // Si l'URL de la carte pointe vers Chartfox, on utilise le proxy. 
+            // Si c'est déjà un lien absolu PDF officiel, on le charge.
+            const targetUrl = chart.url.startsWith('http') ? chart.url : `https://chartfox.org${chart.url}`;
+            fetch(`${MY_PROXY}?url=${encodeURIComponent(targetUrl)}`)
                 .then(res => res.ok ? res.blob() : Promise.reject())
                 .then(blob => pdfCache[chart.url] = URL.createObjectURL(blob))
                 .catch(() => {});
@@ -220,8 +246,9 @@ async function loadChart(url) {
     viewerPlaceholder.style.display = 'block';
 
     try {
-        // Interrogation de votre Proxy en Mode Fichier (?url=...)
-        const response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(url)}`);
+        const targetUrl = url.startsWith('http') ? url : `https://chartfox.org${url}`;
+        const response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(targetUrl)}`);
+        
         if (!response.ok) throw new Error("Erreur Serveur");
         
         const blob = await response.blob();
@@ -235,7 +262,7 @@ async function loadChart(url) {
             <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
                 <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Le fichier PDF source est protégé ou indisponible.</p>
-                <button onclick="window.open('${url}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                <button onclick="window.open('${url.startsWith('http') ? url : 'https://chartfox.org' + url}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
                     Tenter l'ouverture externe ↗️
                 </button>
             </div>
