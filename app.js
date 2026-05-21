@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE INTELLIGENT ---
+// --- 5. MOTEUR HYBRIDE ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -145,15 +145,7 @@ async function performSearch() {
                     else if (cType.includes('APP') || cType.includes('IAC') || cName.includes('APP') || cName.includes('ILS') || cName.includes('LOC') || cName.includes('VOR') || cName.includes('NDB') || cName.includes('IAC') || cName.includes('RNP')) type = 'APP';
                     else if (cType.includes('TAXI') || cType.includes('GND') || cName.includes('TAXI') || cName.includes('GND') || cName.includes('PRKG') || cName.includes('PARKING') || cName.includes('SOL') || cName.includes('GMC')) type = 'GND';
 
-                    // LA CHASSE AU TRÉSOR : On ouvre le tiroir 'meta' pour trouver les liens de l'Angleterre !
-                    let chartUrl = "INCONNU";
-                    if (chart.url) chartUrl = chart.url;
-                    else if (chart.file_url) chartUrl = chart.file_url;
-                    else if (chart.meta && typeof chart.meta === 'object') {
-                        // Si le tiroir existe, on prend le premier lien valide qu'on y trouve
-                        chartUrl = chart.meta.url || chart.meta.file_url || chart.meta.link || chart.meta.href || chart.view_url || "INCONNU";
-                    }
-                    else if (chart.view_url) chartUrl = chart.view_url;
+                    const chartUrl = chart.view_url || chart.url || chart.file_url || "INCONNU";
                     
                     if (chartUrl !== "INCONNU") {
                         foundCharts.push({
@@ -271,7 +263,6 @@ function createChartElement(chart, isDock = false) {
     return div;
 }
 
-// --- 7. Logique Épingles ---
 function togglePin(chart) {
     const index = pinnedCharts.findIndex(c => c.url === chart.url);
     if (index > -1) {
@@ -283,7 +274,7 @@ function togglePin(chart) {
     renderDock();
 }
 
-// --- 8. LECTEUR PDF ET DÉCODEUR INERTIA.JS ---
+// --- 8. LECTEUR PDF AVEC SCANNER BRUTE-FORCE ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
     
@@ -305,57 +296,66 @@ async function loadChart(url) {
         
         let blob = await response.blob();
         
-        // LE HACK ULTIME : Si la carte est protégée derrière une page Web
+        // LE HACK ULTIME : L'URL menait vers une page Web sécurisée
         if (blob.type.includes("text/html")) {
-            viewerPlaceholder.innerHTML = "Contournement de sécurité Chartfox...<br><span style='font-size: 11px; color:#f1c40f;'>🔍 Piratage de l'interface en cours...</span>";
+            viewerPlaceholder.innerHTML = "Contournement de sécurité Chartfox...<br><span style='font-size: 11px; color:#f1c40f;'>🔍 Scanner Brute-Force en action...</span>";
             
             const htmlText = await blob.text();
             let realPdfUrl = null;
 
-            // On fouille dans le cerveau du site (Inertia.js)
             const inertiaMatch = htmlText.match(/data-page=(['"])(.*?)\1/);
             if (inertiaMatch) {
                 try {
                     const decodedJson = inertiaMatch[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-                    const pageData = JSON.parse(decodedJson);
                     
-                    if (pageData.props && pageData.props.chart) {
-                        const c = pageData.props.chart;
-                        // On prend tout, même si ça ne finit pas par .pdf
-                        realPdfUrl = c.url || c.file_url || c.link || (c.meta && c.meta.url);
-                        
-                        // Ultime secours : on cherche le premier lien externe dans les données
-                        if (!realPdfUrl) {
-                            const stringified = JSON.stringify(c);
-                            const urlMatch = stringified.match(/https?:\/\/[^"'\s]+/i);
-                            if (urlMatch) realPdfUrl = urlMatch[0];
-                        }
-                    }
+                    // SCANNER EXTRÊME : On aspire TOUTES les URL présentes dans le code
+                    const allUrls = decodedJson.match(/https?:\/\/[^"'\\]+/g) || [];
                     
-                    if (!realPdfUrl) {
-                        throw new Error(`Structure trouvée mais lien absent. Clés: ${Object.keys(pageData.props.chart || {}).join(', ')}`);
+                    // On filtre pour ne garder que ce qui ressemble à une base de données aéronautique ou un PDF
+                    const possibleUrls = allUrls.filter(u => 
+                        u.endsWith('.pdf') || 
+                        u.includes('cdn.chartfox.org') || 
+                        u.includes('nats.co.uk') || 
+                        u.includes('ead-it.com') ||
+                        u.includes('aerad')
+                    );
+                    
+                    // On enlève les faux positifs (Politique de confidentialité, etc.)
+                    const cleanUrls = possibleUrls.filter(u => !u.includes('policy') && !u.includes('terms') && !u.includes('github'));
+
+                    if (cleanUrls.length > 0) {
+                        realPdfUrl = cleanUrls[0]; // On a attrapé le lien caché !
+                    } else {
+                        // S'il n'y a vraiment aucun lien, on affiche les tiroirs existants pour comprendre
+                        const pageData = JSON.parse(decodedJson);
+                        const keys = Object.keys(pageData.props || {}).join(', ');
+                        throw new Error(`Aucun lien aéronautique détecté. Tiroirs : [${keys}]`);
                     }
                 } catch(e) { 
-                    throw new Error(e.message || "Impossible de décoder les données internes.");
+                    throw new Error(e.message || "Impossible de décoder les données brutes.");
                 }
             } else {
                  throw new Error("L'interface Chartfox a bloqué l'analyseur.");
             }
             
             if (realPdfUrl && realPdfUrl !== url) {
-                if (realPdfUrl.startsWith('/')) realPdfUrl = `https://chartfox.org${realPdfUrl}`;
-                
-                // On relance la demande avec le VRAI lien trouvé !
+                viewerPlaceholder.innerHTML = "Fichier trouvé !<br><span style='font-size: 11px; color:#3498db;'>📥 Téléchargement direct en cours...</span>";
+
+                // On relance la demande avec le VRAI lien trouvé
                 response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(realPdfUrl)}`);
-                if (!response.ok) throw new Error("Le serveur final a refusé la connexion.");
+                if (!response.ok) throw new Error(`Le serveur de la carte a refusé la connexion (${response.status}).`);
                 
                 blob = await response.blob();
-                if (blob.type.includes("text/html")) throw new Error("Le lien final est également verrouillé par le pays.");
+                
+                // Si la source officielle (ex: NATS UK) bloque Cloudflare et renvoie une page Web
+                if (blob.type.includes("text/html")) {
+                    throw new Error("Le pays source (ex: UK NATS) bloque l'intégration interne.");
+                }
             }
         }
         
         if (blob.type.includes("application/json")) {
-            throw new Error("Données JSON reçues au lieu d'une image/PDF.");
+            throw new Error("Données JSON reçues au lieu d'une carte PDF.");
         }
         
         // C'est gagné, on affiche !
@@ -365,12 +365,13 @@ async function loadChart(url) {
         viewerPlaceholder.style.display = 'none';
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
+
     } catch (e) {
         const targetUrl = url.startsWith('http') ? url : `https://chartfox.org${url}`;
         viewerPlaceholder.innerHTML = `
             <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
-                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Format complexe ou PDF protégé.</p>
+                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Format externe ou protégé.</p>
                 <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">Détail : ${e.message}</p>
                 <button onclick="window.open('${targetUrl}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
                     Ouvrir la carte en direct ↗️
