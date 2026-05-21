@@ -1,222 +1,72 @@
-/* --- Réinitialisation de base --- */
-* {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-}
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 
-body {
-    background-color: #121212;
-    color: #ffffff;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden; /* Empêche la page entière de scroller */
-}
+body { background-color: #121212; color: #ffffff; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-/* --- Barre supérieure (Header) --- */
-header {
-    background-color: #1e1e1e;
-    height: 60px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 20px;
-    border-bottom: 1px solid #333;
-}
+/* --- Top Bar --- */
+.top-bar { background-color: #1e1e1e; height: 50px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid #333; z-index: 100; }
+.logo { font-weight: bold; color: #ccc; }
+.search-container { display: flex; align-items: center; background: #2c2c2c; border-radius: 4px; overflow: hidden; }
+.search-container input { border: none; background: transparent; color: white; padding: 6px 12px; outline: none; text-transform: uppercase; width: 150px; }
+.search-container button { background: #333; border: none; color: white; padding: 6px 12px; cursor: pointer; transition: background 0.2s; }
+.search-container button:hover { background: #444; }
+.current-icao { font-weight: bold; color: #888; font-size: 14px; }
 
-.search-bar input {
-    padding: 8px 12px;
-    border-radius: 4px;
-    border: 1px solid #444;
-    background-color: #2c2c2c;
-    color: white;
-    outline: none;
-}
+/* --- Layout Principal --- */
+.app-container { display: flex; flex: 1; height: calc(100vh - 50px); }
 
-.search-bar button {
-    padding: 8px 15px;
-    background-color: #007bff;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    margin-left: 5px;
-}
+/* --- Colonnes Latérales (Charts & Dock) --- */
+.sidebar-left { width: 300px; background-color: #212121; border-right: 1px solid #333; display: flex; flex-direction: column; }
+.sidebar-right { width: 300px; background-color: #212121; border-left: 1px solid #333; display: flex; flex-direction: column; }
 
-.airport-info {
-    font-weight: bold;
-    color: #aaa;
-}
+.sidebar-header { padding: 15px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+.sidebar-header h2 { font-size: 16px; font-weight: 500; color: #eee; }
 
-/* --- Conteneur Principal --- */
-.app-container {
-    display: flex;
-    flex: 1;
-    height: calc(100vh - 60px);
-}
+/* --- Onglets façon Chartfox --- */
+.tabs-container { display: flex; background-color: #2a2a2a; padding: 0 10px; border-bottom: 1px solid #111; }
+.tab-btn { flex: 1; padding: 12px 0; background: none; border: none; color: #888; font-size: 12px; font-weight: bold; cursor: pointer; text-align: center; border-bottom: 3px solid transparent; transition: all 0.2s; }
+.tab-btn:hover { color: #fff; background-color: #333; }
 
-/* --- Barre Latérale (Sidebar) --- */
-.sidebar {
-    width: 320px;
-    background-color: #1a1a1a;
-    border-right: 1px solid #333;
-    display: flex;
-    flex-direction: column;
-    overflow-y: auto; /* Permet le scroll uniquement dans la barre latérale */
-}
+/* Couleurs des onglets actifs */
+.tab-btn.active[data-type="ALL"]  { color: #fff; border-bottom-color: #aaa; }
+.tab-btn.active[data-type="GEN"]  { color: #fff; border-bottom-color: #e74c3c; } /* Rouge */
+.tab-btn.active[data-type="GND"]  { color: #fff; border-bottom-color: #9b59b6; } /* Violet */
+.tab-btn.active[data-type="SID"]  { color: #fff; border-bottom-color: #f1c40f; } /* Jaune */
+.tab-btn.active[data-type="STAR"] { color: #fff; border-bottom-color: #3498db; } /* Bleu */
+.tab-btn.active[data-type="APP"]  { color: #fff; border-bottom-color: #00a651; } /* Vert Chartfox */
 
-.sidebar-section {
-    border-bottom: 1px solid #333;
-    padding-bottom: 10px;
-}
+/* --- Listes de cartes --- */
+.chart-list-wrapper, .dock-list-wrapper { flex: 1; overflow-y: auto; padding: 10px; }
+.empty-msg { color: #666; font-size: 12px; text-align: center; margin-top: 20px; }
 
-.sidebar-section h3 {
-    padding: 15px;
-    font-size: 14px;
-    color: #888;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
+.chart-item { display: flex; justify-content: space-between; align-items: center; background-color: #333; margin-bottom: 5px; padding: 10px; border-radius: 4px; cursor: pointer; border-left: 4px solid transparent; transition: background 0.1s; }
+.chart-item:hover { background-color: #444; }
 
-/* --- Liste des cartes --- */
-.chart-list {
-    list-style: none;
-}
+/* Gestion du texte long */
+.chart-name { font-size: 13px; font-weight: 500; flex: 1; color: #ddd; white-space: normal; word-wrap: break-word; line-height: 1.3; padding-right: 10px; }
+.pin-btn { background: none; border: none; color: #aaa; font-size: 16px; cursor: pointer; padding: 5px; flex-shrink: 0; transition: color 0.2s; }
+.pin-btn:hover { color: #fff; }
 
-.chart-item {
-    padding: 12px 15px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid #2a2a2a;
-    cursor: pointer;
-    transition: background 0.2s;
-}
+/* Surbrillance de la carte cliquée (façon Chartfox) */
+.chart-item.active[data-type="GEN"] { background-color: #e74c3c; color: white; }
+.chart-item.active[data-type="GND"] { background-color: #9b59b6; color: white; }
+.chart-item.active[data-type="SID"] { background-color: #555; border-left-color: #f1c40f; }
+.chart-item.active[data-type="STAR"] { background-color: #555; border-left-color: #3498db; }
+.chart-item.active[data-type="APP"] { background-color: #00a651; color: white; }
+.chart-item.active .chart-name { color: white; }
+.chart-item.active .pin-btn { color: white; }
 
-.chart-item:hover {
-    background-color: #2c2c2c;
-}
+/* --- Groupes du Dock --- */
+.dock-group-title { background-color: #444; color: #fff; padding: 5px 10px; font-size: 12px; font-weight: bold; margin-bottom: 5px; text-align: center; border-radius: 2px; }
 
-.chart-name {
-    font-size: 14px;
-    flex: 1;
-}
+/* --- Visionneuse Centrale --- */
+.viewer { flex: 1; background-color: #000; position: relative; }
+#pdf-viewer { width: 100%; height: 100%; display: none; }
+#viewer-placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #888; font-size: 16px; text-align: center; }
+.popup-box { background: #222; padding: 25px; border-radius: 6px; border: 1px solid #444; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+.close-btn { position: absolute; top: 10px; right: 15px; background: none; border: none; color: #888; font-size: 24px; cursor: pointer; }
 
-.pin-btn {
-    background: none;
-    border: none;
-    color: #888;
-    font-size: 18px;
-    cursor: pointer;
-    padding: 5px;
-}
-
-.pin-btn.active {
-    color: #ffc107; /* Jaune pour indiquer qu'elle est épinglée */
-}
-
-/* --- Afficheur de Carte (Viewer) --- */
-.viewer {
-    flex: 1;
-    background-color: #333; /* Fond gris foncé derrière le PDF */
-    position: relative;
-}
-
-#pdf-viewer {
-    width: 100%;
-    height: 100%;
-    display: none; /* Masqué par défaut */
-}
-
-#viewer-placeholder {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: #888;
-    font-size: 18px;
-}
-
-/* --- Personnalisation des Scrollbars (Webkit) --- */
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-}
-::-webkit-scrollbar-track {
-    background: #1a1a1a;
-}
-::-webkit-scrollbar-thumb {
-    background: #444;
-    border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-    background: #555;
-}
-
-/* --- Badges de couleur pour les types de cartes --- */
-.badge {
-    display: inline-block;
-    padding: 3px 7px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: bold;
-    margin-right: 10px;
-    color: white;
-    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-}
-
-/* Couleurs inspirées des standards aéronautiques */
-.bg-info { background-color: #6c757d; } /* Gris */
-.bg-taxi { background-color: #e0a800; color: #111; text-shadow: none; } /* Jaune */
-.bg-sid  { background-color: #28a745; } /* Vert */
-.bg-star { background-color: #007bff; } /* Bleu */
-.bg-appr { background-color: #dc3545; } /* Rouge */
-
-/* --- Effet de survol amélioré --- */
-.chart-item {
-    border-left: 3px solid transparent; /* Prépare une bordure invisible */
-}
-.chart-item:hover {
-    background-color: #2c2c2c;
-    border-left: 3px solid #007bff; /* Barre bleue au survol */
-}
-
-/* --- Système d'onglets (Filtres) --- */
-.tabs-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    padding: 10px;
-    background-color: #1a1a1a;
-    border-bottom: 1px solid #333;
-    position: sticky; /* Garde les onglets visibles quand on défile */
-    top: 0;
-    z-index: 10;
-}
-
-.tab-btn {
-    flex: 1 1 calc(33% - 5px); /* Crée une grille de 3 boutons par ligne */
-    padding: 7px 0;
-    background-color: #2c2c2c;
-    color: #888;
-    border: 1px solid #444;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: all 0.2s ease-in-out;
-}
-
-.tab-btn:hover {
-    background-color: #3c3c3c;
-    color: #fff;
-}
-
-.tab-btn.active {
-    background-color: #007bff;
-    color: #ffffff;
-    border-color: #007bff;
-    box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
-}
+/* Scrollbars */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #777; }

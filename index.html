@@ -5,34 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Mon EFB VFR</title>
+    <title>Mon EFB VFR & IFR</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <header>
+    <header class="top-bar">
         <div class="logo">✈️ EFB Simulator</div>
-        <div class="search-bar">
+        <div class="search-container">
             <input type="text" id="airport-search" placeholder="Code OACI (ex: LFPG)..." autocomplete="off">
-            <button id="search-btn">Chercher</button>
+            <button id="search-btn">🔍</button>
         </div>
-        <div class="airport-info" id="airport-title">Aucun aéroport sélectionné</div>
+        <div class="current-icao" id="airport-title">En attente...</div>
     </header>
 
     <div class="app-container">
         
-        <aside class="sidebar">
-            <div class="sidebar-section">
-                <h3>📌 Cartes Épinglées</h3>
-                <ul id="pinned-list" class="chart-list">
-                    </ul>
+        <aside class="sidebar-left">
+            <div class="sidebar-header">
+                <h2>Charts</h2>
             </div>
-
-            <div class="sidebar-section">
-                <h3>📂 Catégories</h3>
-                <div id="categories-container">
-                    <p style="padding: 10px; color: #888;">Cherchez un aéroport pour voir les cartes.</p>
+            
+            <div id="tabs-container" class="tabs-container">
                 </div>
+
+            <div id="categories-container" class="chart-list-wrapper">
+                <p class="empty-msg">Recherchez un aéroport pour afficher les cartes.</p>
             </div>
         </aside>
 
@@ -40,6 +38,14 @@
             <iframe id="pdf-viewer" src="" frameborder="0"></iframe>
             <div id="viewer-placeholder">Sélectionnez une carte pour l'afficher</div>
         </main>
+
+        <aside class="sidebar-right">
+            <div class="sidebar-header">
+                <h2>Dock</h2>
+            </div>
+            <div id="dock-container" class="dock-list-wrapper">
+                </div>
+        </aside>
 
     </div>
 
