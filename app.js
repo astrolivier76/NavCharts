@@ -5,7 +5,7 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre proxy mondial Cloudflare
+// L'URL de votre proxy (Sert uniquement pour la France désormais)
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories
@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE INTELLIGENT ---
+// --- 5. MOTEUR HYBRIDE ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -64,13 +64,14 @@ async function performSearch() {
     let hasError = false;
 
     try {
+        // === MOTEUR FRANCE (PDF DIRECTS) ===
         if (icao.startsWith('LF')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone France. Moteur SIA engagé.`;
-            document.getElementById('diag-2').innerHTML = `⏳ 2. Scraping en cours...`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Obtention des cartes officielles...`;
             
             const dates = getAiracDates();
             const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
-            foundCharts.push({ id: `${icao}_VAC`, icao: icao, type: 'GEN', name: `VAC VFR`, url: siaVacUrl });
+            foundCharts.push({ id: `${icao}_VAC`, icao: icao, type: 'GEN', name: `VAC VFR`, url: siaVacUrl, source: 'SIA' });
 
             const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
             const proxyUrl = `${MY_PROXY}?url=${encodeURIComponent(eAipUrl)}`;
@@ -98,12 +99,12 @@ async function performSearch() {
                             else if (n.includes('SOL') || n.includes('PRKG') || n.includes('PARKING') || n.includes('TAXI') || n.includes('GMC')) type = 'GND';
                             
                             if (!foundCharts.find(c => c.url === absoluteUrl)) {
-                                foundCharts.push({ id: `${icao}_IFR_${idCounter++}`, icao: icao, type: type, name: chartName, url: absoluteUrl });
+                                foundCharts.push({ id: `${icao}_IFR_${idCounter++}`, icao: icao, type: type, name: chartName, url: absoluteUrl, source: 'SIA' });
                             }
                         }
                     }
                     document.getElementById('diag-2').innerHTML = `✅ 2. Scraping SIA réussi.`;
-                    document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes natives prêtes.`;
+                    document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes chargées.`;
                 } else {
                     document.getElementById('diag-2').innerHTML = `⚠️ 2. Aérodrome VFR uniquement.`;
                 }
@@ -111,21 +112,23 @@ async function performSearch() {
                 document.getElementById('diag-2').innerHTML = `❌ 2. Erreur réseau SIA.`;
                 hasError = true;
             }
-        } else {
-            document.getElementById('diag-1').innerHTML = `✅ 1. Zone Inter. Moteur Mondial engagé.`;
+        } 
+        // === MOTEUR MONDIAL (INDEXATION CHARTFOX UNIQUEMENT) ===
+        else {
+            document.getElementById('diag-1').innerHTML = `✅ 1. Zone Inter. Indexation Mondiale engagée.`;
             const proxyUrl = `${MY_PROXY}?icao=${icao}`;
 
             const response = await fetch(proxyUrl);
-            if (!response.ok) throw new Error("HTTP Failed");
+            if (!response.ok) throw new Error("Erreur de connexion à l'index mondial.");
 
             const textData = await response.text(); 
             if (textData.includes("<html") || textData.includes("login") || textData.includes("Auth")) {
-                 document.getElementById('diag-2').innerHTML = `❌ 2. BLOCAGE : Session VATSIM expirée.`;
+                 document.getElementById('diag-2').innerHTML = `⚠️ 2. Reconnexion Chartfox requise (Token expiré).`;
                  throw new Error("Session Expired");
             }
 
             const data = JSON.parse(textData);
-            document.getElementById('diag-2').innerHTML = "✅ 2. Base mondiale lue avec succès.";
+            document.getElementById('diag-2').innerHTML = "✅ 2. Base mondiale indexée avec succès.";
             
             let chartsData = [];
             if (data.props && data.props.groupedCharts) {
@@ -145,18 +148,19 @@ async function performSearch() {
                     else if (cType.includes('APP') || cType.includes('IAC') || cName.includes('APP') || cName.includes('ILS') || cName.includes('LOC') || cName.includes('VOR') || cName.includes('NDB') || cName.includes('IAC') || cName.includes('RNP')) type = 'APP';
                     else if (cType.includes('TAXI') || cType.includes('GND') || cName.includes('TAXI') || cName.includes('GND') || cName.includes('PRKG') || cName.includes('PARKING') || cName.includes('SOL') || cName.includes('GMC')) type = 'GND';
 
-                    if (chart.id) {
-                        const apiSecretUrl = `https://api.chartfox.org/v2/charts/${chart.id}`;
-                        foundCharts.push({
-                            id: chart.id,
-                            icao: icao,
-                            type: type,
-                            name: chart.name || 'CARTE IFR',
-                            url: apiSecretUrl
-                        });
-                    }
+                    // On utilise le lien de visualisation officiel de Chartfox
+                    const chartUrl = chart.view_url || `https://chartfox.org/${icao}`;
+                    
+                    foundCharts.push({
+                        id: chart.chartId || chart.id || `${icao}_${Math.random()}`,
+                        icao: icao,
+                        type: type,
+                        name: chart.name || 'CARTE IFR',
+                        url: chartUrl,
+                        source: 'CHARTFOX' // Marqueur de traitement externe
+                    });
                 });
-                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} liens API extraits.`;
+                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes indexées prêtes.`;
             } else {
                 document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée.`;
                 hasError = true;
@@ -172,7 +176,7 @@ async function performSearch() {
         currentFilter = 'ALL'; 
         renderTabs();
         renderCategories();
-    }, hasError ? 5000 : 500); 
+    }, hasError ? 3000 : 500); 
 }
 
 // --- 6. Rendu Graphique ---
@@ -226,22 +230,33 @@ function createChartElement(chart, isDock = false) {
     const span = document.createElement('span');
     span.className = 'chart-name';
     span.textContent = chart.name;
+    
+    // ACTION AU CLIC : Hybride selon la source !
     span.onclick = () => { 
         currentActiveUrl = chart.url; 
-        renderCategories(); renderDock(); 
-        loadChart(chart.url); 
+        renderCategories(); 
+        renderDock(); 
+        
+        if (chart.source === 'CHARTFOX') {
+            // Chartfox ne permet pas l'intégration iframe/PDF direct. On l'ouvre proprement à côté.
+            window.open(chart.url.startsWith('http') ? chart.url : `https://chartfox.org${chart.url}`, '_blank');
+        } else {
+            // SIA (France) permet la lecture PDF native fluide
+            loadChart(chart.url); 
+        }
     };
 
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'actions-container';
 
+    // Le bouton d'ouverture externe reste toujours utile
     const externalBtn = document.createElement('button');
     externalBtn.className = 'external-btn';
     externalBtn.innerHTML = '↗️';
-    externalBtn.title = "Lien direct (Plein écran externe)";
+    externalBtn.title = "Ouvrir dans un nouvel onglet";
     externalBtn.onclick = (e) => { 
         e.stopPropagation(); 
-        window.open(chart.url, '_blank'); 
+        window.open(chart.url.startsWith('http') ? chart.url : `https://chartfox.org${chart.url}`, '_blank'); 
     };
 
     const pinBtn = document.createElement('button');
@@ -272,7 +287,7 @@ function togglePin(chart) {
     renderDock();
 }
 
-// --- 8. Lecteur PDF (Traitement JSON Intégré) ---
+// --- 8. Lecteur PDF (Réservé à la France / SIA) ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
     
@@ -283,48 +298,16 @@ async function loadChart(url) {
         return;
     }
 
-    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Canal Ouvert</span>";
+    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau SIA Connecté</span>";
     viewerPlaceholder.style.display = 'block';
 
     try {
-        // ÉTAPE 1 : On contacte l'API ou le fichier direct
         let response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(url)}`);
-        if (!response.ok) throw new Error("Erreur Serveur Cloudflare / API Chartfox");
+        if (!response.ok) throw new Error("Erreur Serveur Cloudflare");
         
-        const contentType = response.headers.get("content-type") || "";
-        let finalBlob;
-
-        // ÉTAPE 2 : Si c'est du JSON (cas Chartfox), on l'ouvre !
-        if (contentType.includes("application/json")) {
-            viewerPlaceholder.innerHTML = "Lecture du JSON en cours...<br><span style='font-size: 11px; color:#f1c40f;'>🔍 Extraction du lien final...</span>";
-            
-            const jsonData = await response.json();
-            
-            // On cherche le lien temporaire dans les données JSON de Chartfox
-            let realPdfUrl = jsonData.url || jsonData.file_url || jsonData.pdf_path || (jsonData.data && jsonData.data.url);
-            
-            if (!realPdfUrl) {
-                // Si on ne trouve pas le lien, on affiche les clés pour pouvoir corriger !
-                throw new Error(`Lien introuvable dans le JSON. Clés : ${Object.keys(jsonData).join(', ')}`);
-            }
-
-            // ÉTAPE 3 : On télécharge le vrai PDF via le lien extrait
-            let pdfResponse = await fetch(`${MY_PROXY}?url=${encodeURIComponent(realPdfUrl)}`);
-            if (!pdfResponse.ok) throw new Error("Erreur de téléchargement du fichier final.");
-            
-            finalBlob = await pdfResponse.blob();
-        } 
-        // Si on a reçu une page Web, c'est bloqué.
-        else if (contentType.includes("text/html")) {
-            throw new Error("Le serveur a renvoyé une page Web au lieu d'un PDF.");
-        } 
-        // Si c'est déjà un fichier brut (cas SIA France), on le garde !
-        else {
-            finalBlob = await response.blob();
-        }
+        let blob = await response.blob();
         
-        // Affichage du PDF
-        const pdfBlob = new Blob([finalBlob], { type: 'application/pdf' });
+        const pdfBlob = new Blob([blob], { type: 'application/pdf' });
         pdfCache[url] = URL.createObjectURL(pdfBlob);
         
         viewerPlaceholder.style.display = 'none';
@@ -335,10 +318,9 @@ async function loadChart(url) {
         viewerPlaceholder.innerHTML = `
             <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
-                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Le PDF source est protégé ou introuvable.</p>
-                <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">Détail : ${e.message}</p>
+                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Le PDF est inaccessible.</p>
                 <button onclick="window.open('${url}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
-                    Ouvrir la carte en direct ↗️
+                    Ouvrir manuellement ↗️
                 </button>
             </div>
         `;
