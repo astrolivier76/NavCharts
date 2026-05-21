@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. Moteur Mondial (Tri Intelligent des Cartes) ---
+// --- 5. Moteur Mondial ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -63,7 +63,6 @@ async function performSearch() {
     
     let foundCharts = [];
     
-    // Filet de sécurité VFR France
     if (icao.startsWith('LF')) {
         const dates = getAiracDates();
         const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
@@ -74,13 +73,12 @@ async function performSearch() {
 
     try {
         const response = await fetch(proxyUrl);
-        
         if (!response.ok) throw new Error("HTTP Failed");
 
         const textData = await response.text(); 
         
         if (textData.includes("<html") || textData.includes("login") || textData.includes("Auth")) {
-             document.getElementById('diag-1').innerHTML = `❌ 1. BLOCAGE : Session VATSIM expirée. (Veuillez renouveler le cookie dans Cloudflare).`;
+             document.getElementById('diag-1').innerHTML = `❌ 1. BLOCAGE : Session VATSIM expirée.`;
              throw new Error("Session Expired");
         }
 
@@ -88,7 +86,6 @@ async function performSearch() {
         document.getElementById('diag-1').innerHTML = "✅ 1. Base mondiale lue avec succès.";
         
         let chartsData = [];
-        
         if (data.props && data.props.groupedCharts) {
             Object.values(data.props.groupedCharts).forEach(group => {
                 if (Array.isArray(group)) chartsData.push(...group);
@@ -100,30 +97,18 @@ async function performSearch() {
             
             chartsData.forEach(chart => {
                 let type = 'GEN';
-                
                 const cType = chart.type ? String(chart.type).toUpperCase() : '';
                 const cName = chart.name ? String(chart.name).toUpperCase() : '';
 
-                // NIVEAU 1 : Analyse via le Type officiel fourni par Chartfox
-                if (cType.includes('SID') || cType.includes('DEP')) type = 'SID';
-                else if (cType.includes('STAR') || cType.includes('ARR')) type = 'STAR';
-                else if (cType.includes('APP') || cType.includes('IAC')) type = 'APP';
-                else if (cType.includes('TAXI') || cType.includes('GND') || cType.includes('GROUND') || cType.includes('PARK')) type = 'GND';
-                
-                // NIVEAU 2 : Analyse de secours via le Nom de la carte
-                else {
-                    if (cName.includes('SID') || cName.includes('DEP')) type = 'SID';
-                    else if (cName.includes('STAR') || cName.includes('ARR')) type = 'STAR';
-                    else if (cName.includes('TAXI') || cName.includes('GND') || cName.includes('PRKG') || cName.includes('PARKING') || cName.includes('SOL') || cName.includes('GMC')) type = 'GND';
-                    // Ajout de toutes les balises possibles (dont IAC pour la France)
-                    else if (cName.includes('APP') || cName.includes('ILS') || cName.includes('LOC') || cName.includes('VOR') || cName.includes('NDB') || cName.includes('IAC') || cName.includes('RNP')) type = 'APP';
-                    // On se méfie du mot RNAV. On ne le met dans APP que si on est sûr.
-                    else if (cName.includes('RNAV') && !cName.includes('SUBSTITUTION')) type = 'APP';
-                }
+                if (cType.includes('SID') || cType.includes('DEP') || cName.includes('SID') || cName.includes('DEP')) type = 'SID';
+                else if (cType.includes('STAR') || cType.includes('ARR') || cName.includes('STAR') || cName.includes('ARR')) type = 'STAR';
+                else if (cType.includes('APP') || cType.includes('IAC') || cName.includes('APP') || cName.includes('ILS') || cName.includes('LOC') || cName.includes('VOR') || cName.includes('NDB') || cName.includes('IAC') || cName.includes('RNP')) type = 'APP';
+                else if (cType.includes('TAXI') || cType.includes('GND') || cName.includes('TAXI') || cName.includes('GND') || cName.includes('PRKG') || cName.includes('PARKING') || cName.includes('SOL') || cName.includes('GMC')) type = 'GND';
 
                 const isDuplicateVAC = type === 'GEN' && cName.includes('VAC') && icao.startsWith('LF');
                 
-                const chartUrl = chart.view_url || chart.url || chart.file_url || "INCONNU";
+                // LA CORRECTION : On priorise les vrais fichiers (url, file_url, pdf_path) avant la page web (view_url)
+                const chartUrl = chart.url || chart.file_url || chart.pdf_path || chart.view_url || "INCONNU";
                 
                 if (!isDuplicateVAC && chartUrl !== "INCONNU") {
                     foundCharts.push({
@@ -138,9 +123,8 @@ async function performSearch() {
             
             document.getElementById('diag-3').innerHTML = `🏁 3. Création de l'interface...`;
         } else {
-            document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée dans la base de données pour cet aéroport.`;
+            document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée.`;
         }
-
     } catch (e) { 
         if (e.message !== "HTTP Failed" && e.message !== "Session Expired") {
             document.getElementById('diag-1').innerHTML = `❌ 1. Erreur d'analyse : ${e.message}`;
@@ -157,7 +141,7 @@ async function performSearch() {
     }, hasError ? 5000 : 300); 
 }
 
-// --- 6. Rendu Graphique (Onglets, Listes, Dock) ---
+// --- 6. Rendu Graphique ---
 function renderTabs() {
     tabsContainer.innerHTML = '';
     CATEGORIES.forEach(tab => {
@@ -244,7 +228,7 @@ function createChartElement(chart, isDock = false) {
     return div;
 }
 
-// --- 7. Logique Épingles (LocalStorage) ---
+// --- 7. Logique Épingles ---
 function togglePin(chart) {
     const index = pinnedCharts.findIndex(c => c.url === chart.url);
     if (index > -1) {
@@ -255,15 +239,18 @@ function togglePin(chart) {
             const targetUrl = chart.url.startsWith('http') ? chart.url : `https://chartfox.org${chart.url}`;
             fetch(`${MY_PROXY}?url=${encodeURIComponent(targetUrl)}`)
                 .then(res => res.ok ? res.blob() : Promise.reject())
-                .then(blob => pdfCache[chart.url] = URL.createObjectURL(blob))
-                .catch(() => {});
+                .then(blob => {
+                    if(!blob.type.includes("text/html")) {
+                        pdfCache[chart.url] = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+                    }
+                }).catch(() => {});
         }
     }
     localStorage.setItem('savedDock', JSON.stringify(pinnedCharts));
     renderDock();
 }
 
-// --- 8. Lecteur PDF Propulsé par Cloudflare ---
+// --- 8. Lecteur PDF Sécurisé ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
     
@@ -284,7 +271,15 @@ async function loadChart(url) {
         if (!response.ok) throw new Error("Erreur Serveur");
         
         const blob = await response.blob();
-        pdfCache[url] = URL.createObjectURL(blob);
+        
+        // LE DÉTECTEUR DE MENSONGE : Si c'est une page web (HTML), on rejette.
+        if (blob.type.includes("text/html") || blob.type.includes("application/json")) {
+            throw new Error("Ceci n'est pas un fichier PDF");
+        }
+        
+        // On force le navigateur à lire le fichier comme un PDF officiel
+        const pdfBlob = new Blob([blob], { type: 'application/pdf' });
+        pdfCache[url] = URL.createObjectURL(pdfBlob);
         
         viewerPlaceholder.style.display = 'none';
         pdfViewer.src = pdfCache[url] + "#view=FitH";
@@ -294,9 +289,10 @@ async function loadChart(url) {
         viewerPlaceholder.innerHTML = `
             <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
-                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Le fichier PDF source est protégé ou indisponible.</p>
+                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Format non-standard ou PDF protégé.</p>
+                <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">Le site source exige que vous ouvriez la carte en externe.</p>
                 <button onclick="window.open('${targetUrl}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
-                    Tenter l'ouverture externe ↗️
+                    Ouvrir la carte en direct ↗️
                 </button>
             </div>
         `;
