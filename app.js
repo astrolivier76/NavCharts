@@ -120,13 +120,20 @@ async function performSearch() {
         // ==========================================
         else if (icao.startsWith('K')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Moteur FAA engagé.`;
-            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion directe à AviationAPI...`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion à la FAA via tunnel neutre...`;
             
             const faaUrl = `https://api.aviationapi.com/v1/charts?apt=${icao}`;
             
-            // LA CORRECTION : On interroge l'API américaine EN DIRECT pour éviter le conflit Cloudflare !
-            const response = await fetch(faaUrl);
-            if (!response.ok) throw new Error("Le serveur de la FAA ne répond pas.");
+            // LA CORRECTION : Utilisation de AllOrigins pour éviter le blocage CORS du navigateur
+            let response;
+            try {
+                response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(faaUrl)}`);
+            } catch (err) {
+                // Tunnel de secours ultra-robuste
+                response = await fetch(`https://corsproxy.io/?${encodeURIComponent(faaUrl)}`);
+            }
+            
+            if (!response || !response.ok) throw new Error("Le serveur de la FAA a bloqué la connexion.");
             
             const data = await response.json();
             
@@ -147,7 +154,7 @@ async function performSearch() {
                         type: type,
                         name: chart.chart_name,
                         url: chart.pdf_path,
-                        source: 'NATIVE' // Lecture interne autorisée
+                        source: 'NATIVE' // On indique à l'iPad qu'il peut lire ça en interne !
                     });
                 });
                 document.getElementById('diag-2').innerHTML = `✅ 2. API FAA lue avec succès.`;
@@ -202,7 +209,7 @@ async function performSearch() {
                         type: type,
                         name: chart.name || 'CARTE IFR',
                         url: chartUrl,
-                        source: 'CHARTFOX' // Marqueur de traitement externe
+                        source: 'CHARTFOX' // Marqueur pour dire à l'iPad de ne pas l'intégrer
                     });
                 });
                 document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes indexées.`;
@@ -329,7 +336,7 @@ function togglePin(chart) {
     renderDock();
 }
 
-// --- 8. Lecteur PDF (Réservé à la France / USA) ---
+// --- 8. Lecteur PDF (France & USA) ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
     
