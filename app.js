@@ -55,7 +55,8 @@ function performSearch() {
         { 
             id: icao + '_VAC', 
             type: 'INFO',
-            name: `Carte VAC VFR`, 
+            // On ajoute le code OACI dans le nom pour bien les différencier
+            name: `Carte VAC VFR (${icao})`, 
             url: siaVacUrl 
         }
     ]; 
