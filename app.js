@@ -40,7 +40,7 @@ function getCurrentAiracDate() {
     return `${day}_${month}_${year}`;
 }
 
-// --- 5. La vraie fonction de recherche (Connectée au SIA) ---
+// --- 5. La vraie fonction de recherche (Connectée au SIA via Google Viewer) ---
 function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -50,20 +50,20 @@ function performSearch() {
     // On génère la date AIRAC
     const airacDate = getCurrentAiracDate();
     
-    // Création du lien dynamique EXACT vers le PDF du SIA (avec /media/)
+    // Création du lien dynamique EXACT vers le PDF du SIA
     const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${airacDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
 
-    // Ajout d'un Proxy transparent pour contourner la sécurité du SIA
-    const proxyUrl = "https://corsproxy.io/?";
-    const finalUrl = proxyUrl + encodeURIComponent(siaVacUrl);
+    // L'ASTUCE : On passe le lien à la visionneuse de Google
+    // embedded=true permet d'autoriser l'affichage dans notre iframe
+    const googleViewerUrl = `https://docs.google.com/gview?url=${encodeURIComponent(siaVacUrl)}&embedded=true`;
 
-    // On peuple la liste avec la vraie carte débloquée
+    // On peuple la liste avec la carte gérée par Google
     currentCharts = [
         { 
             id: icao + '_VAC', 
-            type: 'INFO', // Utilise le badge gris par défaut
+            type: 'INFO',
             name: `Carte VAC VFR`, 
-            url: finalUrl 
+            url: googleViewerUrl 
         }
     ]; 
     
