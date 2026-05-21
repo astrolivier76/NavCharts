@@ -18,8 +18,8 @@ searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') performSearch();
 });
 
-// --- 4. Générateur automatique de cycle AIRAC ---
-function getCurrentAiracDate() {
+// --- 4. Générateur automatique de cycle AIRAC (Format Double) ---
+function getAiracDates() {
     const baseAirac = new Date('2024-01-25T00:00:00Z');
     const now = new Date();
     
@@ -30,34 +30,92 @@ function getCurrentAiracDate() {
     const currentAirac = new Date(baseAirac.getTime() + cyclesPassed * 28 * msPerDay);
     
     const day = String(currentAirac.getUTCDate()).padStart(2, '0');
-    const monthNames = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-    const month = monthNames[currentAirac.getUTCMonth()];
+    const month = String(currentAirac.getUTCMonth() + 1).padStart(2, '0');
     const year = currentAirac.getUTCFullYear();
     
-    return `${day}_${month}_${year}`;
+    const monthNames = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+    const monthName = monthNames[currentAirac.getUTCMonth()];
+    
+    return {
+        folderDate: `${day}_${monthName}_${year}`, // Format du dossier racine (ex: 14_MAY_2026)
+        isoDate: `${year}-${month}-${day}`          // Format du sous-dossier (ex: 2026-05-14)
+    };
 }
 
-// --- 5. La fonction de recherche (Connectée au SIA) ---
-function performSearch() {
+// --- 5. La fonction de recherche (Scraping du SIA - VFR + IFR) ---
+async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = "Aéroport : " + icao;
     
-    const airacDate = getCurrentAiracDate();
-    // URL officielle et exacte sur les serveurs du SIA
-    const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${airacDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
-
-    // On injecte le code OACI directement dans le titre pour différencier les cartes
-    currentCharts = [
-        { 
-            id: icao + '_VAC', 
-            type: 'INFO', 
-            name: `Carte VAC VFR (${icao})`, 
-            url: siaVacUrl 
-        }
-    ]; 
+    // Message de chargement pendant que l'iPad lit le code source du SIA
+    categoriesContainer.innerHTML = "<p style='padding: 15px; color: #aaa; text-align: center; font-size: 14px;'>📡 Recherche et tri des cartes IFR/VFR en cours...<br><br>Veuillez patienter...</p>";
     
+    const dates = getAiracDates();
+    let foundCharts = [];
+    
+    // --- PARTIE 1 : Ajout immédiat de la carte VAC (VFR) ---
+    const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
+    foundCharts.push({ 
+        id: icao + '_VAC', 
+        type: 'INFO', 
+        name: `Carte VAC VFR (${icao})`, 
+        url: siaVacUrl 
+    });
+
+    // --- PARTIE 2 : Scraping IFR de la page eAIP officielle ---
+    const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
+    const proxyUrl = "https://api.allorigins.win/raw?url=";
+
+    try {
+        const response = await fetch(proxyUrl + encodeURIComponent(eAipUrl));
+        
+        if (response.ok) {
+            const htmlText = await response.text();
+            
+            // Regex puissante pour trouver les liens cachés de type "Cartes/[OACI]/...pdf"
+            const regex = /href="(Cartes\/[^"]+\.pdf)"[^>]*>(.*?)<\/a>/gi;
+            let match;
+            let idCounter = 1;
+            
+            while ((match = regex.exec(htmlText)) !== null) {
+                const relativeLink = match[1];
+                
+                // Nettoyage des balises HTML et des espaces invisibles du SIA
+                let chartName = match[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+                if (chartName === '') chartName = "Carte IFR";
+
+                const absoluteUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/${relativeLink}`;
+                
+                // Le "Cerveau" : Tri automatique en catégories (SID, STAR, etc.)
+                let type = 'INFO';
+                const nameUpper = chartName.toUpperCase();
+                const linkUpper = relativeLink.toUpperCase();
+                
+                if (nameUpper.includes('SID') || linkUpper.includes('SID')) type = 'SID';
+                else if (nameUpper.includes('STAR') || linkUpper.includes('STAR') || nameUpper.includes('ARRIVEE')) type = 'STAR';
+                else if (nameUpper.includes('APPROCHE') || nameUpper.includes('ILS') || nameUpper.includes('LOC') || nameUpper.includes('RNAV') || nameUpper.includes('VOR') || linkUpper.includes('IAC')) type = 'APPR';
+                else if (nameUpper.includes('SOL') || nameUpper.includes('PARKING') || nameUpper.includes('TAXI') || nameUpper.includes('MOUVEMENT') || linkUpper.includes('GMC')) type = 'TAXI';
+                
+                // Ajout uniquement si le lien n'y est pas déjà (le SIA met souvent des doublons)
+                if (!foundCharts.find(c => c.url === absoluteUrl)) {
+                    foundCharts.push({
+                        id: icao + '_IFR_' + idCounter,
+                        type: type,
+                        name: chartName,
+                        url: absoluteUrl
+                    });
+                    idCounter++;
+                }
+            }
+        }
+    } catch (e) {
+        console.log("L'aéroport n'a pas de cartes IFR ou la connexion est ralentie.");
+    }
+    
+    // --- Fin de la recherche : Mise à jour de l'affichage ---
+    currentCharts = foundCharts;
     renderCategories();
 }
 
