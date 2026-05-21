@@ -38,7 +38,7 @@ body { background-color: #121212; color: #ffffff; height: 100vh; display: flex; 
 .chart-list-wrapper, .dock-list-wrapper { flex: 1; overflow-y: auto; padding: 10px; }
 .empty-msg { color: #666; font-size: 12px; text-align: center; margin-top: 20px; }
 
-.chart-item { display: flex; justify-content: space-between; align-items: center; background-color: #333; margin-bottom: 5px; padding: 10px; border-radius: 4px; cursor: pointer; border-left: 4px solid transparent; transition: background 0.1s; }
+.chart-item { display: flex; justify-content: space-between; align-items: center; background-color: #333; margin-bottom: 5px; padding: 10px; border-radius: 4px; cursor: pointer; border-left: 4px solid transparent; transition: background 0.1s, border-width 0.1s; }
 .chart-item:hover { background-color: #444; }
 
 /* Gestion du texte long */
@@ -51,12 +51,21 @@ body { background-color: #121212; color: #ffffff; height: 100vh; display: flex; 
 .pin-btn { background: none; border: none; color: #aaa; font-size: 16px; cursor: pointer; padding: 5px; transition: color 0.2s; }
 .pin-btn:hover { color: #fff; }
 
-/* Surbrillance de la carte cliquée (façon Chartfox) */
-.chart-item.active[data-type="GEN"] { background-color: #e74c3c; color: white; }
-.chart-item.active[data-type="GND"] { background-color: #9b59b6; color: white; }
-.chart-item.active[data-type="SID"] { background-color: #555; border-left-color: #f1c40f; }
-.chart-item.active[data-type="STAR"] { background-color: #555; border-left-color: #3498db; }
-.chart-item.active[data-type="APP"] { background-color: #00a651; color: white; }
+/* --- Couleurs des bordures (Identité Chartfox) --- */
+.chart-item[data-type="GEN"] { border-left-color: #e74c3c; } /* Rouge */
+.chart-item[data-type="GND"] { border-left-color: #9b59b6; } /* Violet */
+.chart-item[data-type="SID"] { border-left-color: #f1c40f; } /* Jaune */
+.chart-item[data-type="STAR"] { border-left-color: #3498db; } /* Bleu */
+.chart-item[data-type="APP"] { border-left-color: #00a651; } /* Vert */
+
+/* --- Surbrillance de la carte cliquée --- */
+.chart-item.active[data-type="GEN"] { background-color: #e74c3c; }
+.chart-item.active[data-type="GND"] { background-color: #9b59b6; }
+/* Pour les SID et STAR, on garde un fond gris avec une bordure épaisse pour plus de lisibilité */
+.chart-item.active[data-type="SID"] { background-color: #3d3d3d; border-left-width: 6px; }
+.chart-item.active[data-type="STAR"] { background-color: #3d3d3d; border-left-width: 6px; }
+.chart-item.active[data-type="APP"] { background-color: #00a651; }
+
 .chart-item.active .chart-name, .chart-item.active .pin-btn, .chart-item.active .external-btn { color: white; }
 
 /* --- Groupes du Dock --- */
