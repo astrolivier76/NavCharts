@@ -42,61 +42,76 @@ function getAiracDates() {
     };
 }
 
-// --- 5. La fonction de recherche (Moteur CHARTFOX + Secours VFR SIA) ---
+// --- 5. La fonction de recherche (Scraping SIA version "Bulldozer") ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = "Aéroport : " + icao;
-    categoriesContainer.innerHTML = "<p style='padding: 15px; color: #aaa; text-align: center; font-size: 14px;'>📡 Interrogation des serveurs Chartfox...<br><br>Recherche mondiale en cours...</p>";
+    categoriesContainer.innerHTML = "<p style='padding: 15px; color: #aaa; text-align: center; font-size: 14px;'>📡 Fouille en profondeur des serveurs du SIA...<br><br>Veuillez patienter...</p>";
     
+    const dates = getAiracDates();
     let foundCharts = [];
+    
+    // 1. La base : La carte VAC
+    const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
+    foundCharts.push({ 
+        id: icao + '_VAC', type: 'INFO', name: `Carte VAC VFR (${icao})`, url: siaVacUrl 
+    });
 
-    // 1. Notre algorithme VFR local (Filet de sécurité garanti pour la France)
-    try {
-        const dates = getAiracDates(); // Assurez-vous d'avoir gardé la fonction getAiracDates() précédente !
-        const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
-        foundCharts.push({ 
-            id: icao + '_VAC', type: 'INFO', name: `Carte VAC VFR (${icao})`, url: siaVacUrl 
-        });
-    } catch(e) { /* Si la date plante, on ignore */ }
+    // 2. Le Bulldozer IFR
+    const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
+    const proxyUrl = "https://api.allorigins.win/raw?url=";
 
-    // 2. Appel à l'API mondiale de Chartfox
     try {
-        // Endpoint public de l'API Chartfox (via notre proxy pour contourner la sécurité navigateur)
-        const chartfoxApiUrl = `https://api.chartfox.org/charts/${icao}`;
-        const proxyUrl = "https://api.allorigins.win/raw?url=";
-        
-        const response = await fetch(proxyUrl + encodeURIComponent(chartfoxApiUrl));
+        const response = await fetch(proxyUrl + encodeURIComponent(eAipUrl));
         
         if (response.ok) {
-            const data = await response.json();
-            // Chartfox renvoie souvent les données sous la forme d'un objet contenant un tableau "data"
-            const chartsArray = data.data || data; 
+            const htmlText = await response.text();
             
-            if (Array.isArray(chartsArray) && chartsArray.length > 0) {
-                chartsArray.forEach(chart => {
-                    // Standardisation des catégories reçues pour correspondre à notre EFB
-                    let type = chart.type || 'INFO';
-                    if (type === 'APP') type = 'APPR'; 
+            // REGEX BULLDOZER : Cherche n'importe quel attribut href qui finit par .pdf
+            const regex = /href="([^"]+\.pdf)"[^>]*>(.*?)<\/a>/gi;
+            let match;
+            let idCounter = 1;
+            
+            while ((match = regex.exec(htmlText)) !== null) {
+                let relativeLink = match[1];
+                let chartName = match[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+                
+                if (chartName === '' || chartName.length < 3) chartName = `Carte IFR ${idCounter}`;
+
+                // On reconstruit l'URL proprement (le SIA utilise souvent des "../" pour remonter dans les dossiers)
+                // On simplifie en gardant la racine de l'eAIP
+                let absoluteUrl = relativeLink;
+                if (!relativeLink.startsWith('http')) {
+                     // Nettoyage des ../../ éventuels
+                     const cleanLink = relativeLink.replace(/(\.\.\/)+/g, '');
+                     absoluteUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/${cleanLink}`;
+                }
+                
+                // Le filtre magique : On ne garde que les PDF qui concernent notre aéroport !
+                if (absoluteUrl.toUpperCase().includes(icao)) {
+                    let type = 'INFO';
+                    const nameUpper = chartName.toUpperCase();
+                    const linkUpper = absoluteUrl.toUpperCase();
                     
-                    foundCharts.push({
-                        id: chart.chartId || chart.id || Math.random().toString(36).substr(2, 9),
-                        type: type,
-                        name: chart.chartName || chart.name || `Carte IFR`,
-                        // L'API Chartfox nous donne ici le lien EXACT vers le PDF officiel !
-                        url: chart.url || chart.link 
-                    });
-                });
+                    if (nameUpper.includes('SID') || linkUpper.includes('SID') || nameUpper.includes('DÉPART')) type = 'SID';
+                    else if (nameUpper.includes('STAR') || linkUpper.includes('STAR') || nameUpper.includes('ARRIVÉE')) type = 'STAR';
+                    else if (nameUpper.includes('APP') || nameUpper.includes('ILS') || nameUpper.includes('LOC') || nameUpper.includes('RNAV') || nameUpper.includes('VOR') || linkUpper.includes('IAC')) type = 'APPR';
+                    else if (nameUpper.includes('SOL') || nameUpper.includes('PARKING') || nameUpper.includes('TAXI') || nameUpper.includes('MOUVEMENT') || linkUpper.includes('GMC')) type = 'TAXI';
+                    
+                    // Anti-doublons
+                    if (!foundCharts.find(c => c.url === absoluteUrl)) {
+                        foundCharts.push({ id: icao + '_IFR_' + idCounter, type: type, name: chartName, url: absoluteUrl });
+                        idCounter++;
+                    }
+                }
             }
-        } else {
-            console.warn(`L'API Chartfox a renvoyé une erreur ${response.status}.`);
         }
     } catch (e) {
-        console.error("Erreur de communication avec Chartfox :", e);
+        console.log("Échec du scraping SIA.");
     }
     
-    // --- Fin de la recherche : Mise à jour de l'affichage ---
     currentCharts = foundCharts;
     renderCategories();
 }
