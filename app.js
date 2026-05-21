@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. Moteur Mondial ---
+// --- 5. MOTEUR HYBRIDE INTELILGENT ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -54,91 +54,137 @@ async function performSearch() {
     
     categoriesContainer.innerHTML = `
         <div style='padding: 15px; color: #00ff00; font-size: 12px; font-family: monospace; background: #111; border: 1px solid #333; margin: 10px; border-radius: 4px; box-shadow: inset 0 0 10px #000;'>
-            <strong style='color: #007bff;'>[GLOBAL UPLINK - ${icao}]</strong><br><br>
-            <span id="diag-1">⏳ 1. Connexion au serveur Cloudflare...</span><br>
+            <strong style='color: #007bff;'>[SYSTEM UPLINK - ${icao}]</strong><br><br>
+            <span id="diag-1">⏳ 1. Analyse de la zone géographique...</span><br>
             <span id="diag-2"></span><br>
             <span id="diag-3"></span>
         </div>
     `;
     
     let foundCharts = [];
-    
-    if (icao.startsWith('LF')) {
-        const dates = getAiracDates();
-        const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
-        foundCharts.push({ id: `${icao}_VAC_SIA`, icao: icao, type: 'GEN', name: `VAC VFR (SIA)`, url: siaVacUrl });
-    }
-
-    const proxyUrl = `${MY_PROXY}?icao=${icao}`;
+    let hasError = false;
 
     try {
-        const response = await fetch(proxyUrl);
-        if (!response.ok) throw new Error("HTTP Failed");
-
-        const textData = await response.text(); 
-        
-        if (textData.includes("<html") || textData.includes("login") || textData.includes("Auth")) {
-             document.getElementById('diag-1').innerHTML = `❌ 1. BLOCAGE : Session VATSIM expirée.`;
-             throw new Error("Session Expired");
-        }
-
-        const data = JSON.parse(textData);
-        document.getElementById('diag-1').innerHTML = "✅ 1. Base mondiale lue avec succès.";
-        
-        let chartsData = [];
-        if (data.props && data.props.groupedCharts) {
-            Object.values(data.props.groupedCharts).forEach(group => {
-                if (Array.isArray(group)) chartsData.push(...group);
-            });
-        }
-
-        if (chartsData.length > 0) {
-            document.getElementById('diag-2').innerHTML = `✅ 2. ${chartsData.length} cartes extraites.`;
+        // ========================================================
+        // SCÉNARIO A : MOTEUR FRANCE (100% NATIF ET RAPIDE)
+        // ========================================================
+        if (icao.startsWith('LF')) {
+            document.getElementById('diag-1').innerHTML = `✅ 1. Zone France détectée. Moteur SIA engagé.`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Scraping du Gouvernement Français...`;
             
-            chartsData.forEach(chart => {
-                let type = 'GEN';
-                const cType = chart.type ? String(chart.type).toUpperCase() : '';
-                const cName = chart.name ? String(chart.name).toUpperCase() : '';
+            const dates = getAiracDates();
+            
+            // VAC VFR
+            const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
+            foundCharts.push({ id: `${icao}_VAC`, icao: icao, type: 'GEN', name: `VAC VFR`, url: siaVacUrl });
 
-                if (cType.includes('SID') || cType.includes('DEP') || cName.includes('SID') || cName.includes('DEP')) type = 'SID';
-                else if (cType.includes('STAR') || cType.includes('ARR') || cName.includes('STAR') || cName.includes('ARR')) type = 'STAR';
-                else if (cType.includes('APP') || cType.includes('IAC') || cName.includes('APP') || cName.includes('ILS') || cName.includes('LOC') || cName.includes('VOR') || cName.includes('NDB') || cName.includes('IAC') || cName.includes('RNP')) type = 'APP';
-                else if (cType.includes('TAXI') || cType.includes('GND') || cName.includes('TAXI') || cName.includes('GND') || cName.includes('PRKG') || cName.includes('PARKING') || cName.includes('SOL') || cName.includes('GMC')) type = 'GND';
+            // Scraping IFR (Comme au bon vieux temps !)
+            const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
+            const proxyUrl = `${MY_PROXY}?url=${encodeURIComponent(eAipUrl)}`;
 
-                const isDuplicateVAC = type === 'GEN' && cName.includes('VAC') && icao.startsWith('LF');
-                
-                // LA CORRECTION : On priorise les vrais fichiers (url, file_url, pdf_path) avant la page web (view_url)
-                const chartUrl = chart.url || chart.file_url || chart.pdf_path || chart.view_url || "INCONNU";
-                
-                if (!isDuplicateVAC && chartUrl !== "INCONNU") {
-                    foundCharts.push({
-                        id: chart.chartId || chart.id || `${icao}_${Math.random()}`,
-                        icao: icao,
-                        type: type,
-                        name: chart.name || 'CARTE IFR',
-                        url: chartUrl
-                    });
+            const response = await fetch(proxyUrl);
+            if (response.ok) {
+                const htmlText = await response.text();
+                if (!htmlText.includes("404 Not Found") && htmlText.length > 500) {
+                    const regex = /href=['"]([^'"]+\.pdf)['"][^>]*>(.*?)<\/a>/gi;
+                    let match; let idCounter = 1;
+                    while ((match = regex.exec(htmlText)) !== null) {
+                        let relativeLink = match[1];
+                        let chartName = match[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (chartName.length < 3) chartName = (relativeLink.match(/([^\/]+)\.pdf$/i) || [])[1]?.replace(/_/g, ' ') || `Carte ${idCounter}`;
+
+                        let absoluteUrl = relativeLink.startsWith('http') ? relativeLink : 
+                            `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/${relativeLink.replace(/(\.\.\/)+/g, '')}`;
+                        
+                        if (absoluteUrl.toUpperCase().includes(icao)) {
+                            let type = 'GEN';
+                            const n = chartName.toUpperCase();
+                            if (n.includes('SID') || n.includes('DÉP') || n.includes('DEP')) type = 'SID';
+                            else if (n.includes('STAR') || n.includes('ARR')) type = 'STAR';
+                            else if (n.includes('APP') || n.includes('ILS') || n.includes('LOC') || n.includes('RNAV') || n.includes('VOR') || n.includes('NDB') || n.includes('IAC')) type = 'APP';
+                            else if (n.includes('SOL') || n.includes('PRKG') || n.includes('PARKING') || n.includes('TAXI') || n.includes('GMC')) type = 'GND';
+                            
+                            if (!foundCharts.find(c => c.url === absoluteUrl)) {
+                                foundCharts.push({ id: `${icao}_IFR_${idCounter++}`, icao: icao, type: type, name: chartName, url: absoluteUrl });
+                            }
+                        }
+                    }
+                    document.getElementById('diag-2').innerHTML = `✅ 2. Scraping réussi.`;
+                    document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes natives prêtes.`;
+                } else {
+                    document.getElementById('diag-2').innerHTML = `⚠️ 2. Aérodrome VFR uniquement.`;
                 }
-            });
+            } else {
+                document.getElementById('diag-2').innerHTML = `❌ 2. Le serveur SIA ne répond pas.`;
+                hasError = true;
+            }
+        } 
+        // ========================================================
+        // SCÉNARIO B : MOTEUR MONDIAL (CHARTFOX)
+        // ========================================================
+        else {
+            document.getElementById('diag-1').innerHTML = `✅ 1. Zone Inter. Moteur Mondial engagé.`;
+            const proxyUrl = `${MY_PROXY}?icao=${icao}`;
+
+            const response = await fetch(proxyUrl);
+            if (!response.ok) throw new Error("HTTP Failed");
+
+            const textData = await response.text(); 
+            if (textData.includes("<html") || textData.includes("login") || textData.includes("Auth")) {
+                 document.getElementById('diag-2').innerHTML = `❌ 2. BLOCAGE : Session VATSIM expirée.`;
+                 throw new Error("Session Expired");
+            }
+
+            const data = JSON.parse(textData);
+            document.getElementById('diag-2').innerHTML = "✅ 2. Base mondiale lue avec succès.";
             
-            document.getElementById('diag-3').innerHTML = `🏁 3. Création de l'interface...`;
-        } else {
-            document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée.`;
+            let chartsData = [];
+            if (data.props && data.props.groupedCharts) {
+                Object.values(data.props.groupedCharts).forEach(group => {
+                    if (Array.isArray(group)) chartsData.push(...group);
+                });
+            }
+
+            if (chartsData.length > 0) {
+                chartsData.forEach(chart => {
+                    let type = 'GEN';
+                    const cType = chart.type ? String(chart.type).toUpperCase() : '';
+                    const cName = chart.name ? String(chart.name).toUpperCase() : '';
+
+                    if (cType.includes('SID') || cType.includes('DEP') || cName.includes('SID') || cName.includes('DEP')) type = 'SID';
+                    else if (cType.includes('STAR') || cType.includes('ARR') || cName.includes('STAR') || cName.includes('ARR')) type = 'STAR';
+                    else if (cType.includes('APP') || cType.includes('IAC') || cName.includes('APP') || cName.includes('ILS') || cName.includes('LOC') || cName.includes('VOR') || cName.includes('NDB') || cName.includes('IAC') || cName.includes('RNP')) type = 'APP';
+                    else if (cType.includes('TAXI') || cType.includes('GND') || cName.includes('TAXI') || cName.includes('GND') || cName.includes('PRKG') || cName.includes('PARKING') || cName.includes('SOL') || cName.includes('GMC')) type = 'GND';
+
+                    const chartUrl = chart.view_url || chart.url || chart.file_url || "INCONNU";
+                    
+                    if (chartUrl !== "INCONNU") {
+                        foundCharts.push({
+                            id: chart.chartId || chart.id || `${icao}_${Math.random()}`,
+                            icao: icao,
+                            type: type,
+                            name: chart.name || 'CARTE IFR',
+                            url: chartUrl
+                        });
+                    }
+                });
+                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes extraites.`;
+            } else {
+                document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée.`;
+                hasError = true;
+            }
         }
     } catch (e) { 
-        if (e.message !== "HTTP Failed" && e.message !== "Session Expired") {
-            document.getElementById('diag-1').innerHTML = `❌ 1. Erreur d'analyse : ${e.message}`;
-        }
+        document.getElementById('diag-3').innerHTML = `❌ 3. Erreur : ${e.message}`;
+        hasError = true;
     }
 
-    const hasError = document.getElementById('diag-1').innerHTML.includes('❌') || document.getElementById('diag-2').innerHTML.includes('⚠️');
-    
     setTimeout(() => {
         currentCharts = foundCharts;
         currentFilter = 'ALL'; 
         renderTabs();
         renderCategories();
-    }, hasError ? 5000 : 300); 
+    }, hasError ? 5000 : 500); 
 }
 
 // --- 6. Rendu Graphique ---
@@ -261,7 +307,7 @@ async function loadChart(url) {
         return;
     }
 
-    viewerPlaceholder.innerHTML = "Téléchargement de la carte...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau Mondial Connecté</span>";
+    viewerPlaceholder.innerHTML = "Téléchargement de la carte...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau Sécurisé</span>";
     viewerPlaceholder.style.display = 'block';
 
     try {
@@ -272,12 +318,10 @@ async function loadChart(url) {
         
         const blob = await response.blob();
         
-        // LE DÉTECTEUR DE MENSONGE : Si c'est une page web (HTML), on rejette.
         if (blob.type.includes("text/html") || blob.type.includes("application/json")) {
             throw new Error("Ceci n'est pas un fichier PDF");
         }
         
-        // On force le navigateur à lire le fichier comme un PDF officiel
         const pdfBlob = new Blob([blob], { type: 'application/pdf' });
         pdfCache[url] = URL.createObjectURL(pdfBlob);
         
