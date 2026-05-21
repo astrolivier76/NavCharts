@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. Moteur Mondial (Version Finale) ---
+// --- 5. Moteur Mondial (Tri Intelligent des Cartes) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -63,6 +63,7 @@ async function performSearch() {
     
     let foundCharts = [];
     
+    // Filet de sécurité VFR France
     if (icao.startsWith('LF')) {
         const dates = getAiracDates();
         const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
@@ -103,14 +104,25 @@ async function performSearch() {
                 const cType = chart.type ? String(chart.type).toUpperCase() : '';
                 const cName = chart.name ? String(chart.name).toUpperCase() : '';
 
-                if (cType === 'SID' || cName.includes('SID') || cName.includes('DEPARTURE')) type = 'SID';
-                else if (cType === 'STAR' || cName.includes('STAR') || cName.includes('ARRIVAL')) type = 'STAR';
-                else if (cType === 'APP' || cName.includes('ILS') || cName.includes('RNAV') || cName.includes('APPROACH')) type = 'APP';
-                else if (cType === 'TAXI' || cType === 'GND' || cName.includes('TAXI') || cName.includes('PARKING')) type = 'GND';
+                // NIVEAU 1 : Analyse via le Type officiel fourni par Chartfox
+                if (cType.includes('SID') || cType.includes('DEP')) type = 'SID';
+                else if (cType.includes('STAR') || cType.includes('ARR')) type = 'STAR';
+                else if (cType.includes('APP') || cType.includes('IAC')) type = 'APP';
+                else if (cType.includes('TAXI') || cType.includes('GND') || cType.includes('GROUND') || cType.includes('PARK')) type = 'GND';
+                
+                // NIVEAU 2 : Analyse de secours via le Nom de la carte
+                else {
+                    if (cName.includes('SID') || cName.includes('DEP')) type = 'SID';
+                    else if (cName.includes('STAR') || cName.includes('ARR')) type = 'STAR';
+                    else if (cName.includes('TAXI') || cName.includes('GND') || cName.includes('PRKG') || cName.includes('PARKING') || cName.includes('SOL') || cName.includes('GMC')) type = 'GND';
+                    // Ajout de toutes les balises possibles (dont IAC pour la France)
+                    else if (cName.includes('APP') || cName.includes('ILS') || cName.includes('LOC') || cName.includes('VOR') || cName.includes('NDB') || cName.includes('IAC') || cName.includes('RNP')) type = 'APP';
+                    // On se méfie du mot RNAV. On ne le met dans APP que si on est sûr.
+                    else if (cName.includes('RNAV') && !cName.includes('SUBSTITUTION')) type = 'APP';
+                }
 
                 const isDuplicateVAC = type === 'GEN' && cName.includes('VAC') && icao.startsWith('LF');
                 
-                // LE VOILÀ ! On utilise la fameuse clé 'view_url'
                 const chartUrl = chart.view_url || chart.url || chart.file_url || "INCONNU";
                 
                 if (!isDuplicateVAC && chartUrl !== "INCONNU") {
@@ -137,7 +149,6 @@ async function performSearch() {
 
     const hasError = document.getElementById('diag-1').innerHTML.includes('❌') || document.getElementById('diag-2').innerHTML.includes('⚠️');
     
-    // Le délai est redescendu à 0.3s (ultra-rapide) si tout va bien !
     setTimeout(() => {
         currentCharts = foundCharts;
         currentFilter = 'ALL'; 
