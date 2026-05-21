@@ -8,7 +8,7 @@ let currentActiveUrl = '';
 // L'URL de votre proxy mondial Cloudflare
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
-// Définition des catégories "Chartfox style"
+// Définition des catégories
 const CATEGORIES = [
     { id: 'ALL', label: 'ALL' },
     { id: 'GEN', label: 'GEN' },
@@ -32,7 +32,7 @@ const viewerPlaceholder = document.getElementById('viewer-placeholder');
 searchBtn.addEventListener('click', performSearch);
 searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') performSearch(); });
 
-// --- 4. Outil AIRAC (Filet de sécurité VFR pour la France) ---
+// --- 4. Outil AIRAC (France) ---
 function getAiracDates() {
     const baseAirac = new Date('2024-01-25T00:00:00Z');
     const now = new Date();
@@ -45,17 +45,16 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE INTELILGENT ---
+// --- 5. MOTEUR HYBRIDE ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = icao;
-    
     categoriesContainer.innerHTML = `
         <div style='padding: 15px; color: #00ff00; font-size: 12px; font-family: monospace; background: #111; border: 1px solid #333; margin: 10px; border-radius: 4px; box-shadow: inset 0 0 10px #000;'>
             <strong style='color: #007bff;'>[SYSTEM UPLINK - ${icao}]</strong><br><br>
-            <span id="diag-1">⏳ 1. Analyse de la zone géographique...</span><br>
+            <span id="diag-1">⏳ 1. Analyse de la zone...</span><br>
             <span id="diag-2"></span><br>
             <span id="diag-3"></span>
         </div>
@@ -65,20 +64,14 @@ async function performSearch() {
     let hasError = false;
 
     try {
-        // ========================================================
-        // SCÉNARIO A : MOTEUR FRANCE (100% NATIF ET RAPIDE)
-        // ========================================================
         if (icao.startsWith('LF')) {
-            document.getElementById('diag-1').innerHTML = `✅ 1. Zone France détectée. Moteur SIA engagé.`;
-            document.getElementById('diag-2').innerHTML = `⏳ 2. Scraping du Gouvernement Français...`;
+            document.getElementById('diag-1').innerHTML = `✅ 1. Zone France. Moteur SIA engagé.`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Scraping en cours...`;
             
             const dates = getAiracDates();
-            
-            // VAC VFR
             const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
             foundCharts.push({ id: `${icao}_VAC`, icao: icao, type: 'GEN', name: `VAC VFR`, url: siaVacUrl });
 
-            // Scraping IFR (Comme au bon vieux temps !)
             const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
             const proxyUrl = `${MY_PROXY}?url=${encodeURIComponent(eAipUrl)}`;
 
@@ -109,20 +102,16 @@ async function performSearch() {
                             }
                         }
                     }
-                    document.getElementById('diag-2').innerHTML = `✅ 2. Scraping réussi.`;
+                    document.getElementById('diag-2').innerHTML = `✅ 2. Scraping SIA réussi.`;
                     document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes natives prêtes.`;
                 } else {
                     document.getElementById('diag-2').innerHTML = `⚠️ 2. Aérodrome VFR uniquement.`;
                 }
             } else {
-                document.getElementById('diag-2').innerHTML = `❌ 2. Le serveur SIA ne répond pas.`;
+                document.getElementById('diag-2').innerHTML = `❌ 2. Erreur réseau SIA.`;
                 hasError = true;
             }
-        } 
-        // ========================================================
-        // SCÉNARIO B : MOTEUR MONDIAL (CHARTFOX)
-        // ========================================================
-        else {
+        } else {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone Inter. Moteur Mondial engagé.`;
             const proxyUrl = `${MY_PROXY}?icao=${icao}`;
 
@@ -281,22 +270,12 @@ function togglePin(chart) {
         pinnedCharts.splice(index, 1);
     } else {
         pinnedCharts.push(chart);
-        if (!pdfCache[chart.url]) {
-            const targetUrl = chart.url.startsWith('http') ? chart.url : `https://chartfox.org${chart.url}`;
-            fetch(`${MY_PROXY}?url=${encodeURIComponent(targetUrl)}`)
-                .then(res => res.ok ? res.blob() : Promise.reject())
-                .then(blob => {
-                    if(!blob.type.includes("text/html")) {
-                        pdfCache[chart.url] = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-                    }
-                }).catch(() => {});
-        }
     }
     localStorage.setItem('savedDock', JSON.stringify(pinnedCharts));
     renderDock();
 }
 
-// --- 8. Lecteur PDF Sécurisé ---
+// --- 8. LECTEUR PDF ET DÉCODEUR INERTIA.JS ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
     
@@ -307,19 +286,62 @@ async function loadChart(url) {
         return;
     }
 
-    viewerPlaceholder.innerHTML = "Téléchargement de la carte...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau Sécurisé</span>";
+    viewerPlaceholder.innerHTML = "Téléchargement de la carte...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau Connecté</span>";
     viewerPlaceholder.style.display = 'block';
 
     try {
         const targetUrl = url.startsWith('http') ? url : `https://chartfox.org${url}`;
-        const response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(targetUrl)}`);
+        let response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(targetUrl)}`);
         
-        if (!response.ok) throw new Error("Erreur Serveur");
+        if (!response.ok) throw new Error("Erreur Serveur Cloudflare");
         
-        const blob = await response.blob();
+        let blob = await response.blob();
         
-        if (blob.type.includes("text/html") || blob.type.includes("application/json")) {
-            throw new Error("Ceci n'est pas un fichier PDF");
+        // LE HACK ULTIME : Si Chartfox nous envoie une page HTML
+        if (blob.type.includes("text/html")) {
+            viewerPlaceholder.innerHTML = "Contournement de sécurité Chartfox...<br><span style='font-size: 11px; color:#f1c40f;'>🔍 Extraction du fichier protégé...</span>";
+            
+            const htmlText = await blob.text();
+            let realPdfUrl = null;
+
+            // Moteur 1 : On lit le cerveau de Chartfox (Inertia data-page)
+            const inertiaMatch = htmlText.match(/data-page=(['"])(.*?)\1/);
+            if (inertiaMatch) {
+                try {
+                    // Nettoyage de l'encodage HTML
+                    const decodedJson = inertiaMatch[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+                    const pageData = JSON.parse(decodedJson);
+                    
+                    if (pageData.props && pageData.props.chart) {
+                        realPdfUrl = pageData.props.chart.url || pageData.props.chart.file_url;
+                    }
+                } catch(e) { console.warn("Erreur de lecture du JSON interne."); }
+            }
+
+            // Moteur 2 : Secours (Recherche large de liens PDF ou Download)
+            if (!realPdfUrl) {
+                const pdfMatch = htmlText.match(/https?:\/\/[^"'\s>]+(\.pdf|\/download)[^"'\s>]*/i);
+                if (pdfMatch) realPdfUrl = pdfMatch[0];
+            }
+            
+            if (realPdfUrl && realPdfUrl !== url) {
+                // On a trouvé le vrai lien ! On corrige s'il manque le https
+                if (realPdfUrl.startsWith('/')) realPdfUrl = `https://chartfox.org${realPdfUrl}`;
+                
+                // On relance la demande à travers Cloudflare avec le vrai lien
+                response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(realPdfUrl)}`);
+                if (!response.ok) throw new Error("Erreur lors du téléchargement du fichier final");
+                
+                blob = await response.blob();
+                
+                if (blob.type.includes("text/html")) throw new Error("Impasse : Le lien final est aussi protégé par un pare-feu.");
+            } else {
+                throw new Error("Impossible de trouver le lien PDF caché dans la page.");
+            }
+        }
+        
+        if (blob.type.includes("application/json")) {
+            throw new Error("Données JSON reçues au lieu d'un PDF.");
         }
         
         const pdfBlob = new Blob([blob], { type: 'application/pdf' });
@@ -334,7 +356,7 @@ async function loadChart(url) {
             <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
                 <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Format non-standard ou PDF protégé.</p>
-                <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">Le site source exige que vous ouvriez la carte en externe.</p>
+                <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">Détail : ${e.message}</p>
                 <button onclick="window.open('${targetUrl}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
                     Ouvrir la carte en direct ↗️
                 </button>
