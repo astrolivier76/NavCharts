@@ -51,7 +51,7 @@ function performSearch() {
     const airacDate = getCurrentAiracDate();
     
 // Création du lien dynamique vers le PDF du SIA
-    const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/dvd/eAIP_${airacDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
+    const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${airacDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
     
     // Ajout d'un Proxy gratuit pour contourner la sécurité X-Frame-Options du SIA
     const proxyUrl = "https://api.allorigins.win/raw?url=";
