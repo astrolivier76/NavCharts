@@ -79,9 +79,11 @@ async function performSearch() {
     try {
         const response = await fetch(proxyUrl);
         if (response.ok) {
-            const data = await response.json(); 
-            if (data.contents && !data.contents.includes("404 Not Found")) {
-                const htmlText = data.contents;
+            // CORRECTION ICI : On lit directement le HTML brut renvoyé par Cloudflare !
+            const htmlText = await response.text(); 
+            
+            // On vérifie que la page n'est pas une erreur 404 du SIA
+            if (!htmlText.includes("404 Not Found") && htmlText.length > 500) {
                 document.getElementById('diag-2').innerHTML = `✅ 2. Code source SIA injecté (${htmlText.length} octets).`;
                 document.getElementById('diag-3').innerHTML = "⏳ 3. Analyse et tri des trajectoires IFR...";
 
@@ -112,13 +114,14 @@ async function performSearch() {
                 document.getElementById('diag-3').innerHTML = `✅ 3. Extraction terminée (${rawLinksFound} PDF détectés).`;
                 document.getElementById('diag-4').innerHTML = `🏁 4. Base opérationnelle : ${foundCharts.length - 1} cartes IFR valides.`;
             } else {
-                document.getElementById('diag-2').innerHTML = `⚠️ 2. Terrain VFR pur ou pas de données IFR disponibles.`;
+                document.getElementById('diag-2').innerHTML = `⚠️ 2. Terrain VFR pur ou page IFR absente.`;
             }
         } else {
-            document.getElementById('diag-2').innerHTML = `❌ 2. Cloudflare refuse la liaison (${response.status}).`;
+            document.getElementById('diag-2').innerHTML = `❌ 2. Cloudflare a bloqué (${response.status}).`;
         }
     } catch (e) { 
         document.getElementById('diag-2').innerHTML = `❌ 2. Liaison impossible avec le Worker.`;
+        console.error(e);
     }
 
     const hasError = document.getElementById('diag-2').innerHTML.includes('❌') || document.getElementById('diag-2').innerHTML.includes('⚠️');
@@ -128,7 +131,7 @@ async function performSearch() {
         currentFilter = 'ALL'; 
         renderTabs();
         renderCategories();
-    }, hasError ? 2500 : 500); // Rendu très rapide (0.5s) si succès !
+    }, hasError ? 2500 : 500); 
 }
 
 // --- 6. Rendu Graphique (Onglets, Listes, Dock) ---
