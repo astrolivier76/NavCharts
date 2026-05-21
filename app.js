@@ -5,6 +5,9 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
+// L'URL de votre proxy privé Cloudflare ultra-rapide
+const MY_PROXY = "https://proxy-efb.alonso-o76.workers.dev/?url=";
+
 // Définition des catégories "Chartfox style"
 const CATEGORIES = [
     { id: 'ALL', label: 'ALL' },
@@ -42,18 +45,18 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. Moteur de Scraping (Avec Terminal de Débogage) ---
+// --- 5. Moteur de Scraping (Propulsé par votre Proxy Privé Cloudflare) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = icao;
     
-    // Terminal X-Ray
+    // Terminal de diagnostic en direct
     categoriesContainer.innerHTML = `
         <div style='padding: 15px; color: #00ff00; font-size: 12px; font-family: monospace; background: #111; border: 1px solid #333; margin: 10px; border-radius: 4px; box-shadow: inset 0 0 10px #000;'>
-            <strong style='color: #007bff;'>[BOOT - RECHERCHE ${icao}]</strong><br><br>
-            <span id="diag-1">⏳ 1. Génération lien VAC...</span><br>
+            <strong style='color: #007bff;'>[LAUNCH - PRIVATE PROXY ON ${icao}]</strong><br><br>
+            <span id="diag-1">⏳ 1. Génération lien VAC VFR...</span><br>
             <span id="diag-2"></span><br>
             <span id="diag-3"></span><br>
             <span id="diag-4"></span>
@@ -63,15 +66,15 @@ async function performSearch() {
     const dates = getAiracDates();
     let foundCharts = [];
     
-    // 1. VAC
+    // 1. VAC (Classée en GEN)
     const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
     foundCharts.push({ id: `${icao}_VAC`, icao: icao, type: 'GEN', name: `VAC VFR`, url: siaVacUrl });
-    document.getElementById('diag-1').innerHTML = "✅ 1. Lien VAC VFR généré.";
+    document.getElementById('diag-1').innerHTML = "✅ 1. Lien VAC VFR généré mathématiquement.";
 
-    // 2. IFR Scraping
-    document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion sécurisée au SIA...`;
+    // 2. IFR Scraping via Cloudflare Worker
+    document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion sécurisée au SIA via Cloudflare...`;
     const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(eAipUrl)}&disableCache=true`;
+    const proxyUrl = MY_PROXY + encodeURIComponent(eAipUrl);
 
     try {
         const response = await fetch(proxyUrl);
@@ -79,8 +82,8 @@ async function performSearch() {
             const data = await response.json(); 
             if (data.contents && !data.contents.includes("404 Not Found")) {
                 const htmlText = data.contents;
-                document.getElementById('diag-2').innerHTML = `✅ 2. Code source reçu (${htmlText.length} octets).`;
-                document.getElementById('diag-3').innerHTML = "⏳ 3. Extraction des PDF...";
+                document.getElementById('diag-2').innerHTML = `✅ 2. Code source SIA injecté (${htmlText.length} octets).`;
+                document.getElementById('diag-3').innerHTML = "⏳ 3. Analyse et tri des trajectoires IFR...";
 
                 const regex = /href=['"]([^'"]+\.pdf)['"][^>]*>(.*?)<\/a>/gi;
                 let match; let idCounter = 1; let rawLinksFound = 0;
@@ -106,19 +109,18 @@ async function performSearch() {
                         }
                     }
                 }
-                document.getElementById('diag-3').innerHTML = `✅ 3. Extraction terminée (${rawLinksFound} trouvés).`;
-                document.getElementById('diag-4').innerHTML = `🏁 4. Validation : ${foundCharts.length - 1} cartes IFR.`;
+                document.getElementById('diag-3').innerHTML = `✅ 3. Extraction terminée (${rawLinksFound} PDF détectés).`;
+                document.getElementById('diag-4').innerHTML = `🏁 4. Base opérationnelle : ${foundCharts.length - 1} cartes IFR valides.`;
             } else {
-                document.getElementById('diag-2').innerHTML = `⚠️ 2. Page IFR introuvable (Aéroport VFR uniquement ou erreur proxy).`;
+                document.getElementById('diag-2').innerHTML = `⚠️ 2. Terrain VFR pur ou pas de données IFR disponibles.`;
             }
         } else {
-            document.getElementById('diag-2').innerHTML = `❌ 2. Échec HTTP du Proxy (${response.status}).`;
+            document.getElementById('diag-2').innerHTML = `❌ 2. Cloudflare refuse la liaison (${response.status}).`;
         }
     } catch (e) { 
-        document.getElementById('diag-2').innerHTML = `❌ 2. Crash réseau (Le proxy sature).`;
+        document.getElementById('diag-2').innerHTML = `❌ 2. Liaison impossible avec le Worker.`;
     }
 
-    // Gestion de l'affichage du terminal
     const hasError = document.getElementById('diag-2').innerHTML.includes('❌') || document.getElementById('diag-2').innerHTML.includes('⚠️');
     
     setTimeout(() => {
@@ -126,7 +128,7 @@ async function performSearch() {
         currentFilter = 'ALL'; 
         renderTabs();
         renderCategories();
-    }, hasError ? 3000 : 800);
+    }, hasError ? 2500 : 500); // Rendu très rapide (0.5s) si succès !
 }
 
 // --- 6. Rendu Graphique (Onglets, Listes, Dock) ---
@@ -154,7 +156,7 @@ function renderCategories() {
 
 function renderDock() {
     dockContainer.innerHTML = '';
-    if (pinnedCharts.length === 0) return dockContainer.innerHTML = '<p class="empty-msg">Dock vide.<br>Cliquez sur 📌 pour épingler.</p>';
+    if (pinnedCharts.length === 0) return dockContainer.innerHTML = '<p class="empty-msg">Dock vide.<br>Cliquez sur 📌 pour organiser votre vol.</p>';
 
     const grouped = {};
     pinnedCharts.forEach(chart => {
@@ -189,11 +191,11 @@ function createChartElement(chart, isDock = false) {
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'actions-container';
 
-    // Bouton d'ouverture rapide (nouvel onglet)
+    // Bouton d'ouverture en onglet direct (Vitesse lumière sans proxy)
     const externalBtn = document.createElement('button');
     externalBtn.className = 'external-btn';
     externalBtn.innerHTML = '↗️';
-    externalBtn.title = "Ouvrir instantanément dans un nouvel onglet";
+    externalBtn.title = "Lien direct SIA (Plein écran externe)";
     externalBtn.onclick = (e) => { 
         e.stopPropagation(); 
         window.open(chart.url, '_blank'); 
@@ -203,7 +205,7 @@ function createChartElement(chart, isDock = false) {
     const pinBtn = document.createElement('button');
     pinBtn.className = 'pin-btn';
     pinBtn.innerHTML = isDock ? '✖' : '📌';
-    pinBtn.title = isDock ? "Retirer l'épingle" : "Épingler la carte";
+    pinBtn.title = isDock ? "Retirer du dock" : "Épingler dans le dock";
     pinBtn.onclick = (e) => { 
         e.stopPropagation(); 
         togglePin(chart); 
@@ -217,15 +219,16 @@ function createChartElement(chart, isDock = false) {
     return div;
 }
 
-// --- 7. Logique Épingles (LocalStorage) ---
+// --- 7. Logique Épingles (LocalStorage avec Pré-chargement Cloudflare) ---
 function togglePin(chart) {
     const index = pinnedCharts.findIndex(c => c.url === chart.url);
     if (index > -1) {
         pinnedCharts.splice(index, 1);
     } else {
         pinnedCharts.push(chart);
+        // Pré-téléchargement immédiat et ultra-fluide via VOTRE proxy Cloudflare
         if (!pdfCache[chart.url]) {
-            fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(chart.url)}&cb=${Date.now()}`)
+            fetch(MY_PROXY + encodeURIComponent(chart.url))
                 .then(res => res.ok ? res.blob() : Promise.reject())
                 .then(blob => pdfCache[chart.url] = URL.createObjectURL(blob))
                 .catch(() => {});
@@ -235,9 +238,11 @@ function togglePin(chart) {
     renderDock();
 }
 
-// --- 8. Lecteur PDF avec Secours Fermable ---
+// --- 8. Lecteur PDF Propulsé par Cloudflare (0% Échec) ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
+    
+    // Si la carte est dans le cache de l'iPad, affichage instantané
     if (pdfCache[url]) {
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
@@ -245,24 +250,28 @@ async function loadChart(url) {
         return;
     }
 
-    viewerPlaceholder.innerHTML = "Chargement...<br><span style='font-size: 11px;'>(Serveur relais public)</span>";
+    viewerPlaceholder.innerHTML = "Téléchargement de la carte via Cloudflare...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Canal Privé Actif</span>";
     viewerPlaceholder.style.display = 'block';
 
     try {
-        const response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}&cb=${Date.now()}`);
-        if (!response.ok) throw new Error("Saturé");
+        // Interrogation de votre Worker Cloudflare
+        const response = await fetch(MY_PROXY + encodeURIComponent(url));
+        if (!response.ok) throw new Error("Erreur Tunnel");
         
-        pdfCache[url] = URL.createObjectURL(await response.blob());
+        const blob = await response.blob();
+        pdfCache[url] = URL.createObjectURL(blob);
+        
         viewerPlaceholder.style.display = 'none';
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
     } catch (e) {
+        // En cas de problème exceptionnel sur le réseau
         viewerPlaceholder.innerHTML = `
             <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
-                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Le proxy public limite la bande passante.</p>
-                <button onclick="window.open('${url}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                    Ouvrir le PDF externe
+                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Perturbation du réseau ou de la liaison Cloudflare.</p>
+                <button onclick="window.open('${url}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                    Ouvrir en direct (Externe)
                 </button>
             </div>
         `;
