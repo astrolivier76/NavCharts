@@ -5,7 +5,7 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre proxy Cloudflare (Votre passe-partout personnel)
+// L'URL de votre proxy Cloudflare (Sert à télécharger les PDF)
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories
@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE INTÉGRAL ---
+// --- 5. MOTEUR HYBRIDE INTÉGRAL (FRANCE + USA + RESTE DU MONDE) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -120,15 +120,21 @@ async function performSearch() {
         // ==========================================
         else if (icao.startsWith('K')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Moteur FAA engagé.`;
-            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion à la FAA via votre serveur privé...`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion à la FAA via relais CodeTabs...`;
             
             const faaUrl = `https://api.aviationapi.com/v1/charts?apt=${icao}`;
             
-            // LA CORRECTION : On passe uniquement par votre propre proxy Cloudflare !
-            // Aucun navigateur ne le bloquera car c'est une adresse reconnue et de confiance.
-            const response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(faaUrl)}`);
+            // LA CORRECTION : On utilise un relais externe indépendant pour ne pas déclencher le pare-feu 530 de Cloudflare
+            let response;
+            try {
+                response = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(faaUrl)}`);
+                if (!response.ok) throw new Error();
+            } catch (e) {
+                // Relais de secours au cas où le premier serait bloqué
+                response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(faaUrl)}`);
+            }
             
-            if (!response.ok) throw new Error("Erreur de communication avec le serveur FAA.");
+            if (!response || !response.ok) throw new Error("Impossible de lire l'annuaire de la FAA.");
             
             const data = await response.json();
             
@@ -149,18 +155,18 @@ async function performSearch() {
                         type: type,
                         name: chart.chart_name,
                         url: chart.pdf_path,
-                        source: 'NATIVE' // On indique à l'iPad qu'il peut lire ça en interne !
+                        source: 'NATIVE' // Indique à l'application qu'elle peut utiliser notre proxy Cloudflare pour le PDF
                     });
                 });
-                document.getElementById('diag-2').innerHTML = `✅ 2. API FAA lue avec succès.`;
-                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes natives prêtes.`;
+                document.getElementById('diag-2').innerHTML = `✅ 2. Base de données FAA synchronisée.`;
+                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes américaines prêtes.`;
             } else {
-                document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée à la FAA.`;
+                document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée pour cet aéroport.`;
                 hasError = true;
             }
         }
         // ==========================================
-        // MOTEUR 3 : RESTE DU MONDE (CHARTFOX) - Liens Externes
+        // MOTEUR 3 : RESTE DU MONDE (CHARTFOX)
         // ==========================================
         else {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone Inter. Indexation Chartfox engagée.`;
@@ -204,7 +210,7 @@ async function performSearch() {
                         type: type,
                         name: chart.name || 'CARTE IFR',
                         url: chartUrl,
-                        source: 'CHARTFOX' // Marqueur pour dire à l'iPad de ne pas l'intégrer
+                        source: 'CHARTFOX' 
                     });
                 });
                 document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes indexées.`;
@@ -278,7 +284,6 @@ function createChartElement(chart, isDock = false) {
     span.className = 'chart-name';
     span.textContent = chart.name;
     
-    // ACTION AU CLIC : Hybride selon la source !
     span.onclick = () => { 
         currentActiveUrl = chart.url; 
         renderCategories(); 
