@@ -40,30 +40,23 @@ function getCurrentAiracDate() {
     return `${day}_${month}_${year}`;
 }
 
-// --- 5. La vraie fonction de recherche (Connectée au SIA via Google Viewer) ---
+// --- 5. La vraie fonction de recherche ---
 function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = "Aéroport : " + icao;
-    
-    // On génère la date AIRAC
     const airacDate = getCurrentAiracDate();
     
-    // Création du lien dynamique EXACT vers le PDF du SIA
+    // Le lien direct et pur du SIA
     const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${airacDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
 
-    // L'ASTUCE : On passe le lien à la visionneuse de Google
-    // embedded=true permet d'autoriser l'affichage dans notre iframe
-    const googleViewerUrl = `https://docs.google.com/gview?url=${encodeURIComponent(siaVacUrl)}&embedded=true`;
-
-    // On peuple la liste avec la carte gérée par Google
     currentCharts = [
         { 
             id: icao + '_VAC', 
             type: 'INFO',
             name: `Carte VAC VFR`, 
-            url: googleViewerUrl 
+            url: siaVacUrl 
         }
     ]; 
     
@@ -125,9 +118,8 @@ function createChartElement(chart) {
 
 // --- 8. Charger et afficher le PDF ---
 function loadChart(url) {
-    viewerPlaceholder.style.display = 'none';
-    pdfViewer.style.display = 'block';
-    pdfViewer.src = url + "#view=FitH"; 
+    // Au lieu de l'afficher dans l'iframe, on ouvre un nouvel onglet
+    window.open(url, '_blank');
 }
 
 // --- 9. Gérer l'ajout ou le retrait d'une épingle ---
