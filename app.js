@@ -5,7 +5,7 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre proxy Cloudflare
+// L'URL de votre proxy Cloudflare (Votre bouclier sécurisé)
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories
@@ -132,32 +132,25 @@ async function performSearch() {
                 
                 const htmlText = await response.text();
                 
-                // LA CORRECTION : On découpe le tableau HTML pour choper le VRAI nom de la carte !
                 const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
                 let matchRow;
                 
                 while ((matchRow = rowRegex.exec(htmlText)) !== null) {
                     let rowHtml = matchRow[1];
                     
-                    // Si la ligne contient un fichier PDF
                     if (rowHtml.match(/\.pdf["']/i)) {
-                        // On extrait la première colonne (le nom) et le lien
                         let nameMatch = rowHtml.match(/<td[^>]*>([\s\S]*?)<\/td>/i);
                         let linkMatch = rowHtml.match(/href=["']([^"']+\.pdf)["']/i);
                         
                         if (nameMatch && linkMatch) {
-                            // Nettoyage parfait du nom (retrait des tags et de la balise **CHANGED**)
                             let name = nameMatch[1].replace(/<[^>]+>/g, '').replace(/\*\*CHANGED\*\*/gi, '').trim();
-                            let url = linkMatch[1];
+                            let url = linkMatch[1].trim();
                             
-                            // On force l'URL en HTTPS sécurisé absolu pour l'iPad
-                            if (url.startsWith('http:')) url = url.replace('http:', 'https:');
-                            if (!url.startsWith('http')) {
+                            if (!url.toLowerCase().startsWith('http')) {
                                 if (url.startsWith('/')) url = 'https://www.airnav.com' + url;
                                 else url = 'https://www.airnav.com/departures/' + url;
                             }
 
-                            // On évite les faux positifs
                             if (name.length > 2 && !name.toLowerCase().includes('download')) {
                                 let type = 'GEN';
                                 const n = name.toUpperCase();
@@ -173,7 +166,8 @@ async function performSearch() {
                                     type: type,
                                     name: name,
                                     url: url,
-                                    source: 'FAA_DIRECT' // On autorise l'ouverture directe dans l'EFB sans téléchargement
+                                    // LE CORRECTIF EST ICI : NATIVE ordonne à l'application de télécharger le PDF via le proxy Cloudflare !
+                                    source: 'NATIVE' 
                                 });
                             }
                         }
@@ -317,7 +311,6 @@ function createChartElement(chart, isDock = false) {
     span.className = 'chart-name';
     span.textContent = chart.name;
     
-    // ACTION AU CLIC : On envoie tout l'objet au lecteur
     span.onclick = () => { 
         currentActiveUrl = chart.url; 
         renderCategories(); 
@@ -367,7 +360,6 @@ function togglePin(chart) {
 
 // --- 8. Lecteur PDF Multimodal ---
 async function loadChart(chartObj) {
-    // Rétrocompatibilité si un vieux lien épinglé est cliqué
     if (typeof chartObj === 'string') {
         chartObj = { url: chartObj, source: 'NATIVE' };
     }
@@ -391,16 +383,7 @@ async function loadChart(chartObj) {
         return;
     }
 
-    // === CAS 2 : ÉTATS-UNIS (Chargement public en direct) ===
-    // On met le lien FAA directement dans l'iframe, le navigateur de l'iPad l'affichera sans télécharger ni bloquer !
-    if (chartObj.source === 'FAA_DIRECT') {
-        viewerPlaceholder.style.display = 'none';
-        pdfViewer.src = url; 
-        pdfViewer.style.display = 'block';
-        return;
-    }
-
-    // === CAS 3 : FRANCE (SIA) - Chargement via le Proxy et le Cache ===
+    // === CAS 2 : FRANCE & ÉTATS-UNIS (NATIVE) ===
     if (pdfCache[url]) {
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
@@ -408,11 +391,12 @@ async function loadChart(chartObj) {
         return;
     }
 
-    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau SIA Connecté</span>";
+    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau Sécurisé Connecté</span>";
 
     try {
+        // En passant par le proxy, le Mixed Content HTTP vers HTTPS est totalement résolu !
         let response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(url)}`);
-        if (!response.ok) throw new Error("Le PDF est inaccessible.");
+        if (!response.ok) throw new Error("Le PDF source est inaccessible.");
         
         let blob = await response.blob();
         
