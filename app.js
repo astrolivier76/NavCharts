@@ -145,10 +145,8 @@ async function performSearch() {
                     else if (cType.includes('APP') || cType.includes('IAC') || cName.includes('APP') || cName.includes('ILS') || cName.includes('LOC') || cName.includes('VOR') || cName.includes('NDB') || cName.includes('IAC') || cName.includes('RNP')) type = 'APP';
                     else if (cType.includes('TAXI') || cType.includes('GND') || cName.includes('TAXI') || cName.includes('GND') || cName.includes('PRKG') || cName.includes('PARKING') || cName.includes('SOL') || cName.includes('GMC')) type = 'GND';
 
-                    // LA CLÉ DE VOÛTE : On fabrique l'URL de l'API secrète grâce à l'ID !
                     if (chart.id) {
                         const apiSecretUrl = `https://api.chartfox.org/v2/charts/${chart.id}`;
-                        
                         foundCharts.push({
                             id: chart.id,
                             icao: icao,
@@ -158,7 +156,7 @@ async function performSearch() {
                         });
                     }
                 });
-                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes extraites via API.`;
+                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} liens API extraits.`;
             } else {
                 document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée.`;
                 hasError = true;
@@ -274,7 +272,7 @@ function togglePin(chart) {
     renderDock();
 }
 
-// --- 8. Lecteur PDF Nettoyé ---
+// --- 8. Lecteur PDF (Traitement JSON Intégré) ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
     
@@ -285,31 +283,59 @@ async function loadChart(url) {
         return;
     }
 
-    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau Connecté</span>";
+    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Canal Ouvert</span>";
     viewerPlaceholder.style.display = 'block';
 
     try {
+        // ÉTAPE 1 : On contacte l'API ou le fichier direct
         let response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(url)}`);
-        
         if (!response.ok) throw new Error("Erreur Serveur Cloudflare / API Chartfox");
         
-        let blob = await response.blob();
-        
-        if (blob.type.includes("text/html") || blob.type.includes("application/json")) {
-            throw new Error("L'API a refusé l'accès direct au PDF (Sécurité régionale).");
+        const contentType = response.headers.get("content-type") || "";
+        let finalBlob;
+
+        // ÉTAPE 2 : Si c'est du JSON (cas Chartfox), on l'ouvre !
+        if (contentType.includes("application/json")) {
+            viewerPlaceholder.innerHTML = "Lecture du JSON en cours...<br><span style='font-size: 11px; color:#f1c40f;'>🔍 Extraction du lien final...</span>";
+            
+            const jsonData = await response.json();
+            
+            // On cherche le lien temporaire dans les données JSON de Chartfox
+            let realPdfUrl = jsonData.url || jsonData.file_url || jsonData.pdf_path || (jsonData.data && jsonData.data.url);
+            
+            if (!realPdfUrl) {
+                // Si on ne trouve pas le lien, on affiche les clés pour pouvoir corriger !
+                throw new Error(`Lien introuvable dans le JSON. Clés : ${Object.keys(jsonData).join(', ')}`);
+            }
+
+            // ÉTAPE 3 : On télécharge le vrai PDF via le lien extrait
+            let pdfResponse = await fetch(`${MY_PROXY}?url=${encodeURIComponent(realPdfUrl)}`);
+            if (!pdfResponse.ok) throw new Error("Erreur de téléchargement du fichier final.");
+            
+            finalBlob = await pdfResponse.blob();
+        } 
+        // Si on a reçu une page Web, c'est bloqué.
+        else if (contentType.includes("text/html")) {
+            throw new Error("Le serveur a renvoyé une page Web au lieu d'un PDF.");
+        } 
+        // Si c'est déjà un fichier brut (cas SIA France), on le garde !
+        else {
+            finalBlob = await response.blob();
         }
         
-        const pdfBlob = new Blob([blob], { type: 'application/pdf' });
+        // Affichage du PDF
+        const pdfBlob = new Blob([finalBlob], { type: 'application/pdf' });
         pdfCache[url] = URL.createObjectURL(pdfBlob);
         
         viewerPlaceholder.style.display = 'none';
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
+
     } catch (e) {
         viewerPlaceholder.innerHTML = `
             <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
-                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Le PDF source est protégé.</p>
+                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Le PDF source est protégé ou introuvable.</p>
                 <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">Détail : ${e.message}</p>
                 <button onclick="window.open('${url}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
                     Ouvrir la carte en direct ↗️
