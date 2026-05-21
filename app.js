@@ -5,7 +5,7 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre proxy Cloudflare
+// L'URL de votre proxy Cloudflare (Votre passe-partout personnel)
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories
@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE INTÉGRAL (AVEC FILET DE SÉCURITÉ) ---
+// --- 5. MOTEUR HYBRIDE INTÉGRAL ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -66,7 +66,7 @@ async function performSearch() {
 
     try {
         // ==========================================
-        // MOTEUR 1 : FRANCE (SIA) - Lecture 100% Native
+        // MOTEUR 1 : FRANCE (SIA) - Lecture Native
         // ==========================================
         if (icao.startsWith('LF')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone France. Moteur SIA engagé.`;
@@ -117,56 +117,59 @@ async function performSearch() {
             }
         } 
         // ==========================================
-        // MOTEUR 2 : ÉTATS-UNIS (FAA) - Lecture 100% Native
+        // MOTEUR 2 : ÉTATS-UNIS (NOUVEAU MOTEUR AIRNAV)
         // ==========================================
         else if (icao.startsWith('K')) {
-            document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Moteur FAA engagé.`;
-            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion à la base de données...`;
+            document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Moteur AirNav engagé.`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Aspiration des PDF de la FAA...`;
             
-            const faaUrl = `https://api.aviationapi.com/v1/charts?apt=${icao}`;
-            let faaData = null;
-
-            // STRATÉGIE BLINDÉE : On tente la connexion, si ça échoue, on ne plante pas, on passe au Plan B.
+            const airnavUrl = `https://www.airnav.com/airport/${icao}`;
+            const proxyUrl = `${MY_PROXY}?url=${encodeURIComponent(airnavUrl)}`;
+            
             try {
-                let res = await fetch(faaUrl);
-                if (res.ok) faaData = await res.json();
-                else throw new Error("Direct Failed");
-            } catch (e1) {
-                try {
-                    // Dernier recours propre sans casser l'URL
-                    let res2 = await fetch(`https://corsproxy.io/?${faaUrl}`);
-                    if (res2.ok) faaData = await res2.json();
-                    else throw new Error("Proxy Failed");
-                } catch (e2) {
-                    faaData = null;
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error("AirNav introuvable");
+                
+                const htmlText = await response.text();
+                
+                // On cherche tous les liens PDF dans la page d'AirNav
+                const regex = /<a href=["']([^"']+\.PDF)["'][^>]*>([^<]+)<\/a>/gi;
+                let match;
+                
+                while ((match = regex.exec(htmlText)) !== null) {
+                    let url = match[1];
+                    let name = match[2].trim();
+                    
+                    // On s'assure que c'est bien une carte (pas un document publicitaire)
+                    if (url.includes('d-tpp') || url.includes('ifr/PDF')) {
+                        let type = 'GEN';
+                        const n = name.toUpperCase();
+                        
+                        if (n.includes('DP') || n.includes('DEP') || n.includes('SID') || n.includes('DEPARTURE')) type = 'SID';
+                        else if (n.includes('STAR') || n.includes('ARRIVAL')) type = 'STAR';
+                        else if (n.includes('ILS') || n.includes('RNAV') || n.includes('LOC') || n.includes('VOR') || n.includes('APPROACH')) type = 'APP';
+                        else if (n.includes('DIAGRAM') || n.includes('TAXI') || n.includes('HOT SPOT')) type = 'GND';
+
+                        foundCharts.push({
+                            id: `${icao}_${Math.random()}`,
+                            icao: icao,
+                            type: type,
+                            name: name,
+                            url: url,
+                            source: 'NATIVE' // On autorise l'iPad à l'ouvrir en interne !
+                        });
+                    }
                 }
-            }
-            
-            if (faaData && faaData[icao] && faaData[icao].length > 0) {
-                faaData[icao].forEach(chart => {
-                    let type = 'GEN';
-                    const code = chart.chart_code ? chart.chart_code.toUpperCase() : '';
-                    const cName = chart.chart_name ? chart.chart_name.toUpperCase() : '';
-
-                    if (code === 'DP' || cName.includes('DEP') || cName.includes('SID')) type = 'SID';
-                    else if (code === 'STAR' || cName.includes('ARR')) type = 'STAR';
-                    else if (code === 'IAP' || cName.includes('ILS') || cName.includes('RNAV') || cName.includes('LOC') || cName.includes('VOR')) type = 'APP';
-                    else if (cName.includes('TAXI') || cName.includes('DIAGRAM') || cName.includes('APD')) type = 'GND';
-
-                    foundCharts.push({
-                        id: `${icao}_${chart.pdf_name}`,
-                        icao: icao,
-                        type: type,
-                        name: chart.chart_name,
-                        url: chart.pdf_path,
-                        source: 'NATIVE'
-                    });
-                });
-                document.getElementById('diag-2').innerHTML = `✅ 2. Base FAA lue avec succès.`;
-                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes natives prêtes.`;
-            } else {
-                // LE FAMEUX FILET DE SÉCURITÉ
-                document.getElementById('diag-2').innerHTML = `⚠️ 2. Blocage serveur FAA. Bascule sur l'index mondial...`;
+                
+                if (foundCharts.length > 0) {
+                    document.getElementById('diag-2').innerHTML = `✅ 2. Scraping AirNav réussi.`;
+                    document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes natives prêtes.`;
+                } else {
+                    document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée. Bascule sur Chartfox...`;
+                    forceChartfoxFallback = true;
+                }
+            } catch (e) {
+                document.getElementById('diag-2').innerHTML = `⚠️ 2. Erreur réseau. Bascule sur Chartfox...`;
                 forceChartfoxFallback = true;
             }
         }
