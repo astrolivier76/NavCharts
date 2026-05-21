@@ -138,3 +138,47 @@ header {
     color: #888;
     font-size: 18px;
 }
+
+/* --- Personnalisation des Scrollbars (Webkit) --- */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: #1a1a1a;
+}
+::-webkit-scrollbar-thumb {
+    background: #444;
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* --- Badges de couleur pour les types de cartes --- */
+.badge {
+    display: inline-block;
+    padding: 3px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: bold;
+    margin-right: 10px;
+    color: white;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+}
+
+/* Couleurs inspirées des standards aéronautiques */
+.bg-info { background-color: #6c757d; } /* Gris */
+.bg-taxi { background-color: #e0a800; color: #111; text-shadow: none; } /* Jaune */
+.bg-sid  { background-color: #28a745; } /* Vert */
+.bg-star { background-color: #007bff; } /* Bleu */
+.bg-appr { background-color: #dc3545; } /* Rouge */
+
+/* --- Effet de survol amélioré --- */
+.chart-item {
+    border-left: 3px solid transparent; /* Prépare une bordure invisible */
+}
+.chart-item:hover {
+    background-color: #2c2c2c;
+    border-left: 3px solid #007bff; /* Barre bleue au survol */
+}
