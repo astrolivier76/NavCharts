@@ -43,7 +43,7 @@ function getAiracDates() {
     };
 }
 
-// --- 5. La fonction de recherche (Mode Diagnostic X-Ray) ---
+// --- 5. La fonction de recherche (Scraping SIA avec Proxy Anti-CORS) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -67,81 +67,87 @@ async function performSearch() {
     // 1. La VAC
     const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
     foundCharts.push({ id: icao + '_VAC', type: 'INFO', name: `Carte VAC VFR`, url: siaVacUrl });
-    document.getElementById('diag-1').innerHTML = "✅ 1. Carte VAC générée.";
+    document.getElementById('diag-1').innerHTML = "✅ 1. Carte VAC prête.";
 
     // 2. Le Scraping IFR
     document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion au SIA pour ${icao}...`;
     const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(eAipUrl)}&cb=${Date.now()}`;
+    
+    // L'ASTUCE ANTI-CORS : On utilise /get au lieu de /raw et on désactive le cache
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(eAipUrl)}&disableCache=true`;
 
     try {
         const response = await fetch(proxyUrl);
         
         if (response.ok) {
-            const htmlText = await response.text();
-            document.getElementById('diag-2').innerHTML = `✅ 2. Page lue avec succès (${htmlText.length} caractères).`;
-            document.getElementById('diag-3').innerHTML = "⏳ 3. Analyse des liens PDF...";
+            const data = await response.json(); // On déballe le paquet sécurisé
             
-            // Regex encore plus large (tolère les espaces et les guillemets simples)
-            const regex = /href=['"]([^'"]+\.pdf)['"][^>]*>(.*?)<\/a>/gi;
-            let match;
-            let idCounter = 1;
-            let rawLinksFound = 0;
-            
-            while ((match = regex.exec(htmlText)) !== null) {
-                rawLinksFound++;
-                let relativeLink = match[1];
-                let rawName = match[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+            // Si la page contient une erreur 404 du SIA
+            if (data.contents && data.contents.includes("404 Not Found")) {
+                document.getElementById('diag-2').innerHTML = `❌ 2. La page IFR n'existe pas (Erreur 404 SIA).`;
+            } else if (data.contents) {
+                const htmlText = data.contents;
+                document.getElementById('diag-2').innerHTML = `✅ 2. Page lue (${htmlText.length} caractères).`;
+                document.getElementById('diag-3').innerHTML = "⏳ 3. Analyse des liens...";
                 
-                let chartName = rawName;
-                if (chartName === '' || chartName.length < 3) {
-                    const filenameMatch = relativeLink.match(/([^\/]+)\.pdf$/i);
-                    chartName = filenameMatch ? filenameMatch[1].replace(/_/g, ' ') : `Carte IFR ${idCounter}`;
-                }
+                const regex = /href=['"]([^'"]+\.pdf)['"][^>]*>(.*?)<\/a>/gi;
+                let match;
+                let idCounter = 1;
+                let rawLinksFound = 0;
+                
+                while ((match = regex.exec(htmlText)) !== null) {
+                    rawLinksFound++;
+                    let relativeLink = match[1];
+                    let rawName = match[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+                    
+                    let chartName = rawName;
+                    if (chartName === '' || chartName.length < 3) {
+                        const filenameMatch = relativeLink.match(/([^\/]+)\.pdf$/i);
+                        chartName = filenameMatch ? filenameMatch[1].replace(/_/g, ' ') : `Carte IFR ${idCounter}`;
+                    }
 
-                let absoluteUrl = relativeLink;
-                if (!relativeLink.startsWith('http')) {
-                     const cleanLink = relativeLink.replace(/(\.\.\/)+/g, '');
-                     absoluteUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/${cleanLink}`;
-                }
-                
-                if (absoluteUrl.toUpperCase().includes(icao)) {
-                    let type = 'INFO';
-                    const nameUpper = chartName.toUpperCase();
-                    const linkUpper = absoluteUrl.toUpperCase();
+                    let absoluteUrl = relativeLink;
+                    if (!relativeLink.startsWith('http')) {
+                         const cleanLink = relativeLink.replace(/(\.\.\/)+/g, '');
+                         absoluteUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/${cleanLink}`;
+                    }
                     
-                    if (nameUpper.includes('SID') || linkUpper.includes('SID') || nameUpper.includes('DÉPART') || linkUpper.includes('DEP')) type = 'SID';
-                    else if (nameUpper.includes('STAR') || linkUpper.includes('STAR') || nameUpper.includes('ARRIVÉE') || linkUpper.includes('ARR')) type = 'STAR';
-                    else if (nameUpper.includes('APP') || linkUpper.includes('APP') || nameUpper.includes('ILS') || nameUpper.includes('LOC') || nameUpper.includes('RNAV') || nameUpper.includes('VOR') || linkUpper.includes('IAC')) type = 'APPR';
-                    else if (nameUpper.includes('SOL') || nameUpper.includes('PARKING') || nameUpper.includes('TAXI') || nameUpper.includes('MOUVEMENT') || linkUpper.includes('GMC')) type = 'TAXI';
-                    
-                    if (!foundCharts.find(c => c.url === absoluteUrl)) {
-                        foundCharts.push({ id: icao + '_IFR_' + idCounter, type: type, name: chartName, url: absoluteUrl });
-                        idCounter++;
+                    if (absoluteUrl.toUpperCase().includes(icao)) {
+                        let type = 'INFO';
+                        const nameUpper = chartName.toUpperCase();
+                        const linkUpper = absoluteUrl.toUpperCase();
+                        
+                        if (nameUpper.includes('SID') || linkUpper.includes('SID') || nameUpper.includes('DÉPART') || linkUpper.includes('DEP')) type = 'SID';
+                        else if (nameUpper.includes('STAR') || linkUpper.includes('STAR') || nameUpper.includes('ARRIVÉE') || linkUpper.includes('ARR')) type = 'STAR';
+                        else if (nameUpper.includes('APP') || linkUpper.includes('APP') || nameUpper.includes('ILS') || nameUpper.includes('LOC') || nameUpper.includes('RNAV') || nameUpper.includes('VOR') || linkUpper.includes('IAC')) type = 'APPR';
+                        else if (nameUpper.includes('SOL') || nameUpper.includes('PARKING') || nameUpper.includes('TAXI') || nameUpper.includes('MOUVEMENT') || linkUpper.includes('GMC')) type = 'TAXI';
+                        
+                        if (!foundCharts.find(c => c.url === absoluteUrl)) {
+                            foundCharts.push({ id: icao + '_IFR_' + idCounter, type: type, name: chartName, url: absoluteUrl });
+                            idCounter++;
+                        }
                     }
                 }
+                
+                document.getElementById('diag-3').innerHTML = `✅ 3. Liens bruts trouvés : ${rawLinksFound}.`;
+                document.getElementById('diag-4').innerHTML = `🏁 4. Cartes IFR validées : ${foundCharts.length - 1}`;
+            } else {
+                 document.getElementById('diag-2').innerHTML = `❌ 2. Contenu vide renvoyé par le proxy.`;
             }
-            
-            document.getElementById('diag-3').innerHTML = `✅ 3. Analyse terminée. Liens bruts trouvés : ${rawLinksFound}.`;
-            document.getElementById('diag-4').innerHTML = `🏁 4. Cartes IFR validées : ${foundCharts.length - 1}`;
-            
-            // On laisse l'écran de diagnostic affiché 2.5 secondes pour avoir le temps de lire, puis on affiche les cartes
-            setTimeout(() => {
-                currentCharts = foundCharts;
-                currentFilter = 'ALL'; 
-                renderCategories();
-            }, 2500);
-
         } else {
-            document.getElementById('diag-2').innerHTML = `❌ 2. Échec de connexion : Erreur ${response.status}`;
-            currentCharts = foundCharts;
-            renderCategories();
+            document.getElementById('diag-2').innerHTML = `❌ 2. Échec HTTP du proxy (${response.status})`;
         }
     } catch (e) {
-        document.getElementById('diag-2').innerHTML = `❌ 2. Crash réseau : Le proxy a rejeté la demande.`;
-        currentCharts = foundCharts;
-        renderCategories();
+        document.getElementById('diag-2').innerHTML = `❌ 2. Crash réseau (Le proxy bloque).`;
+        console.error(e);
     }
+
+    // On fige l'écran 3 secondes pour vous laisser lire, puis on affiche la liste finale !
+    setTimeout(() => {
+        currentCharts = foundCharts;
+        currentFilter = 'ALL'; 
+        renderCategories();
+    }, 3000);
 }
 
 // --- 6. Afficher la liste principale des cartes (AVEC ONGLETS) ---
