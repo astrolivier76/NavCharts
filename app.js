@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE ---
+// --- 5. MOTEUR HYBRIDE INTELLIGENT ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -145,7 +145,15 @@ async function performSearch() {
                     else if (cType.includes('APP') || cType.includes('IAC') || cName.includes('APP') || cName.includes('ILS') || cName.includes('LOC') || cName.includes('VOR') || cName.includes('NDB') || cName.includes('IAC') || cName.includes('RNP')) type = 'APP';
                     else if (cType.includes('TAXI') || cType.includes('GND') || cName.includes('TAXI') || cName.includes('GND') || cName.includes('PRKG') || cName.includes('PARKING') || cName.includes('SOL') || cName.includes('GMC')) type = 'GND';
 
-                    const chartUrl = chart.view_url || chart.url || chart.file_url || "INCONNU";
+                    // LA CHASSE AU TRÉSOR : On ouvre le tiroir 'meta' pour trouver les liens de l'Angleterre !
+                    let chartUrl = "INCONNU";
+                    if (chart.url) chartUrl = chart.url;
+                    else if (chart.file_url) chartUrl = chart.file_url;
+                    else if (chart.meta && typeof chart.meta === 'object') {
+                        // Si le tiroir existe, on prend le premier lien valide qu'on y trouve
+                        chartUrl = chart.meta.url || chart.meta.file_url || chart.meta.link || chart.meta.href || chart.view_url || "INCONNU";
+                    }
+                    else if (chart.view_url) chartUrl = chart.view_url;
                     
                     if (chartUrl !== "INCONNU") {
                         foundCharts.push({
@@ -297,53 +305,60 @@ async function loadChart(url) {
         
         let blob = await response.blob();
         
-        // LE HACK ULTIME : Si Chartfox nous envoie une page HTML
+        // LE HACK ULTIME : Si la carte est protégée derrière une page Web
         if (blob.type.includes("text/html")) {
-            viewerPlaceholder.innerHTML = "Contournement de sécurité Chartfox...<br><span style='font-size: 11px; color:#f1c40f;'>🔍 Extraction du fichier protégé...</span>";
+            viewerPlaceholder.innerHTML = "Contournement de sécurité Chartfox...<br><span style='font-size: 11px; color:#f1c40f;'>🔍 Piratage de l'interface en cours...</span>";
             
             const htmlText = await blob.text();
             let realPdfUrl = null;
 
-            // Moteur 1 : On lit le cerveau de Chartfox (Inertia data-page)
+            // On fouille dans le cerveau du site (Inertia.js)
             const inertiaMatch = htmlText.match(/data-page=(['"])(.*?)\1/);
             if (inertiaMatch) {
                 try {
-                    // Nettoyage de l'encodage HTML
                     const decodedJson = inertiaMatch[2].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
                     const pageData = JSON.parse(decodedJson);
                     
                     if (pageData.props && pageData.props.chart) {
-                        realPdfUrl = pageData.props.chart.url || pageData.props.chart.file_url;
+                        const c = pageData.props.chart;
+                        // On prend tout, même si ça ne finit pas par .pdf
+                        realPdfUrl = c.url || c.file_url || c.link || (c.meta && c.meta.url);
+                        
+                        // Ultime secours : on cherche le premier lien externe dans les données
+                        if (!realPdfUrl) {
+                            const stringified = JSON.stringify(c);
+                            const urlMatch = stringified.match(/https?:\/\/[^"'\s]+/i);
+                            if (urlMatch) realPdfUrl = urlMatch[0];
+                        }
                     }
-                } catch(e) { console.warn("Erreur de lecture du JSON interne."); }
-            }
-
-            // Moteur 2 : Secours (Recherche large de liens PDF ou Download)
-            if (!realPdfUrl) {
-                const pdfMatch = htmlText.match(/https?:\/\/[^"'\s>]+(\.pdf|\/download)[^"'\s>]*/i);
-                if (pdfMatch) realPdfUrl = pdfMatch[0];
+                    
+                    if (!realPdfUrl) {
+                        throw new Error(`Structure trouvée mais lien absent. Clés: ${Object.keys(pageData.props.chart || {}).join(', ')}`);
+                    }
+                } catch(e) { 
+                    throw new Error(e.message || "Impossible de décoder les données internes.");
+                }
+            } else {
+                 throw new Error("L'interface Chartfox a bloqué l'analyseur.");
             }
             
             if (realPdfUrl && realPdfUrl !== url) {
-                // On a trouvé le vrai lien ! On corrige s'il manque le https
                 if (realPdfUrl.startsWith('/')) realPdfUrl = `https://chartfox.org${realPdfUrl}`;
                 
-                // On relance la demande à travers Cloudflare avec le vrai lien
+                // On relance la demande avec le VRAI lien trouvé !
                 response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(realPdfUrl)}`);
-                if (!response.ok) throw new Error("Erreur lors du téléchargement du fichier final");
+                if (!response.ok) throw new Error("Le serveur final a refusé la connexion.");
                 
                 blob = await response.blob();
-                
-                if (blob.type.includes("text/html")) throw new Error("Impasse : Le lien final est aussi protégé par un pare-feu.");
-            } else {
-                throw new Error("Impossible de trouver le lien PDF caché dans la page.");
+                if (blob.type.includes("text/html")) throw new Error("Le lien final est également verrouillé par le pays.");
             }
         }
         
         if (blob.type.includes("application/json")) {
-            throw new Error("Données JSON reçues au lieu d'un PDF.");
+            throw new Error("Données JSON reçues au lieu d'une image/PDF.");
         }
         
+        // C'est gagné, on affiche !
         const pdfBlob = new Blob([blob], { type: 'application/pdf' });
         pdfCache[url] = URL.createObjectURL(pdfBlob);
         
@@ -355,7 +370,7 @@ async function loadChart(url) {
         viewerPlaceholder.innerHTML = `
             <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
-                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Format non-standard ou PDF protégé.</p>
+                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Format complexe ou PDF protégé.</p>
                 <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">Détail : ${e.message}</p>
                 <button onclick="window.open('${targetUrl}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
                     Ouvrir la carte en direct ↗️
