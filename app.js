@@ -5,7 +5,7 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre proxy Cloudflare (Le passe-partout universel)
+// L'URL de votre proxy Cloudflare (Sert à débloquer les PDF)
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories
@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE INTÉGRAL ---
+// --- 5. MOTEUR HYBRIDE INTÉGRAL (FRANCE + USA + RESTE DU MONDE) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -65,7 +65,7 @@ async function performSearch() {
 
     try {
         // ==========================================
-        // MOTEUR 1 : FRANCE (SIA) - Lecture Native
+        // MOTEUR 1 : FRANCE (SIA) - Lecture 100% Native
         // ==========================================
         if (icao.startsWith('LF')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone France. Moteur SIA engagé.`;
@@ -116,18 +116,16 @@ async function performSearch() {
             }
         } 
         // ==========================================
-        // MOTEUR 2 : ÉTATS-UNIS (FAA) - Lecture Native
+        // MOTEUR 2 : ÉTATS-UNIS (FAA) - Lecture 100% Native
         // ==========================================
         else if (icao.startsWith('K')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Moteur FAA engagé.`;
-            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion à AviationAPI...`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion directe à AviationAPI...`;
             
             const faaUrl = `https://api.aviationapi.com/v1/charts?apt=${icao}`;
             
-            // LA CORRECTION EST ICI : On passe par Cloudflare pour éviter le blocage CORS du navigateur
-            const proxyFaaUrl = `${MY_PROXY}?url=${encodeURIComponent(faaUrl)}`;
-            
-            const response = await fetch(proxyFaaUrl);
+            // LA CORRECTION : On interroge l'API américaine EN DIRECT pour éviter le conflit Cloudflare !
+            const response = await fetch(faaUrl);
             if (!response.ok) throw new Error("Le serveur de la FAA ne répond pas.");
             
             const data = await response.json();
@@ -149,7 +147,7 @@ async function performSearch() {
                         type: type,
                         name: chart.chart_name,
                         url: chart.pdf_path,
-                        source: 'NATIVE'
+                        source: 'NATIVE' // Lecture interne autorisée
                     });
                 });
                 document.getElementById('diag-2').innerHTML = `✅ 2. API FAA lue avec succès.`;
@@ -160,7 +158,7 @@ async function performSearch() {
             }
         }
         // ==========================================
-        // MOTEUR 3 : RESTE DU MONDE (CHARTFOX)
+        // MOTEUR 3 : RESTE DU MONDE (CHARTFOX) - Liens Externes
         // ==========================================
         else {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone Inter. Indexation Chartfox engagée.`;
@@ -204,7 +202,7 @@ async function performSearch() {
                         type: type,
                         name: chart.name || 'CARTE IFR',
                         url: chartUrl,
-                        source: 'CHARTFOX' 
+                        source: 'CHARTFOX' // Marqueur de traitement externe
                     });
                 });
                 document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes indexées.`;
@@ -278,6 +276,7 @@ function createChartElement(chart, isDock = false) {
     span.className = 'chart-name';
     span.textContent = chart.name;
     
+    // ACTION AU CLIC : Hybride selon la source !
     span.onclick = () => { 
         currentActiveUrl = chart.url; 
         renderCategories(); 
@@ -330,7 +329,7 @@ function togglePin(chart) {
     renderDock();
 }
 
-// --- 8. Lecteur PDF (France & USA) ---
+// --- 8. Lecteur PDF (Réservé à la France / USA) ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
     
