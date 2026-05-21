@@ -43,27 +43,35 @@ function getAiracDates() {
     };
 }
 
-// --- 5. La fonction de recherche (Scraping SIA version "Bulldozer + Anti-Cache") ---
+// --- 5. La fonction de recherche (Mode Diagnostic X-Ray) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = "Aéroport : " + icao;
-    categoriesContainer.innerHTML = "<p style='padding: 15px; color: #aaa; text-align: center; font-size: 14px;'>📡 Fouille en profondeur des serveurs du SIA...<br><br>Veuillez patienter...</p>";
+    
+    // Le panneau de diagnostic en direct
+    categoriesContainer.innerHTML = `
+        <div style='padding: 15px; color: #ccc; font-size: 13px; font-family: monospace; background: #222; border: 1px solid #444; margin: 10px; border-radius: 5px;'>
+            <strong style='color: #007bff;'>[DIAGNOSTIC EN COURS]</strong><br>
+            <span id="diag-1">⏳ 1. Génération de la carte VAC...</span><br>
+            <span id="diag-2"></span><br>
+            <span id="diag-3"></span><br>
+            <span id="diag-4"></span>
+        </div>
+    `;
     
     const dates = getAiracDates();
     let foundCharts = [];
     
-    // 1. La base : La carte VAC
+    // 1. La VAC
     const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
-    foundCharts.push({ 
-        id: icao + '_VAC', type: 'INFO', name: `Carte VAC VFR`, url: siaVacUrl 
-    });
+    foundCharts.push({ id: icao + '_VAC', type: 'INFO', name: `Carte VAC VFR`, url: siaVacUrl });
+    document.getElementById('diag-1').innerHTML = "✅ 1. Carte VAC générée.";
 
-    // 2. Le Bulldozer IFR
+    // 2. Le Scraping IFR
+    document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion au SIA pour ${icao}...`;
     const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
-    
-    // L'ASTUCE ANTI-CACHE : On ajoute l'heure exacte à l'URL pour forcer le proxy à rafraîchir
     const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(eAipUrl)}&cb=${Date.now()}`;
 
     try {
@@ -71,15 +79,20 @@ async function performSearch() {
         
         if (response.ok) {
             const htmlText = await response.text();
-            const regex = /href="([^"]+\.pdf)"[^>]*>(.*?)<\/a>/gi;
+            document.getElementById('diag-2').innerHTML = `✅ 2. Page lue avec succès (${htmlText.length} caractères).`;
+            document.getElementById('diag-3').innerHTML = "⏳ 3. Analyse des liens PDF...";
+            
+            // Regex encore plus large (tolère les espaces et les guillemets simples)
+            const regex = /href=['"]([^'"]+\.pdf)['"][^>]*>(.*?)<\/a>/gi;
             let match;
             let idCounter = 1;
+            let rawLinksFound = 0;
             
             while ((match = regex.exec(htmlText)) !== null) {
+                rawLinksFound++;
                 let relativeLink = match[1];
                 let rawName = match[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
                 
-                // Si le nom du lien est vide ou illisible, on utilise le nom du fichier PDF (ex: AD_2_LFRG_SID...)
                 let chartName = rawName;
                 if (chartName === '' || chartName.length < 3) {
                     const filenameMatch = relativeLink.match(/([^\/]+)\.pdf$/i);
@@ -108,14 +121,27 @@ async function performSearch() {
                     }
                 }
             }
+            
+            document.getElementById('diag-3').innerHTML = `✅ 3. Analyse terminée. Liens bruts trouvés : ${rawLinksFound}.`;
+            document.getElementById('diag-4').innerHTML = `🏁 4. Cartes IFR validées : ${foundCharts.length - 1}`;
+            
+            // On laisse l'écran de diagnostic affiché 2.5 secondes pour avoir le temps de lire, puis on affiche les cartes
+            setTimeout(() => {
+                currentCharts = foundCharts;
+                currentFilter = 'ALL'; 
+                renderCategories();
+            }, 2500);
+
+        } else {
+            document.getElementById('diag-2').innerHTML = `❌ 2. Échec de connexion : Erreur ${response.status}`;
+            currentCharts = foundCharts;
+            renderCategories();
         }
     } catch (e) {
-        console.log("Échec du scraping SIA.");
+        document.getElementById('diag-2').innerHTML = `❌ 2. Crash réseau : Le proxy a rejeté la demande.`;
+        currentCharts = foundCharts;
+        renderCategories();
     }
-    
-    currentCharts = foundCharts;
-    currentFilter = 'ALL'; 
-    renderCategories();
 }
 
 // --- 6. Afficher la liste principale des cartes (AVEC ONGLETS) ---
