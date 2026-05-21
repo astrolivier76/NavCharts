@@ -50,18 +50,18 @@ function performSearch() {
     // On génère la date AIRAC
     const airacDate = getCurrentAiracDate();
     
-// Création du lien dynamique vers le PDF du SIA
+    // Création du lien dynamique EXACT vers le PDF du SIA (avec /media/)
     const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${airacDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
-    
-    // Ajout d'un Proxy gratuit pour contourner la sécurité X-Frame-Options du SIA
-    const proxyUrl = "https://api.allorigins.win/raw?url=";
+
+    // Ajout d'un Proxy transparent pour contourner la sécurité du SIA
+    const proxyUrl = "https://corsproxy.io/?";
     const finalUrl = proxyUrl + encodeURIComponent(siaVacUrl);
 
     // On peuple la liste avec la vraie carte débloquée
     currentCharts = [
         { 
             id: icao + '_VAC', 
-            type: 'INFO',
+            type: 'INFO', // Utilise le badge gris par défaut
             name: `Carte VAC VFR`, 
             url: finalUrl 
         }
