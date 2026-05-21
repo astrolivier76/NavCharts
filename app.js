@@ -45,17 +45,26 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. Moteur de Recherche Mondial (Chartfox via Cloudflare) ---
+// --- 5. Moteur de Recherche Mondial (Avec Terminal de Diagnostic Actif) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = icao;
-    categoriesContainer.innerHTML = "<p class='empty-msg'>📡 Connexion au réseau mondial en cours...</p>";
+    
+    // Le retour du Terminal !
+    categoriesContainer.innerHTML = `
+        <div style='padding: 15px; color: #00ff00; font-size: 12px; font-family: monospace; background: #111; border: 1px solid #333; margin: 10px; border-radius: 4px; box-shadow: inset 0 0 10px #000;'>
+            <strong style='color: #007bff;'>[GLOBAL UPLINK - ${icao}]</strong><br><br>
+            <span id="diag-1">⏳ 1. Connexion au serveur Cloudflare...</span><br>
+            <span id="diag-2"></span><br>
+            <span id="diag-3"></span>
+        </div>
+    `;
     
     let foundCharts = [];
     
-    // Filet de sécurité : On ajoute toujours la VAC française générée en local
+    // Filet de sécurité VFR France
     if (icao.startsWith('LF')) {
         const dates = getAiracDates();
         const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
@@ -66,62 +75,82 @@ async function performSearch() {
 
     try {
         const response = await fetch(proxyUrl);
-        if (response.ok) {
-            const data = await response.json(); 
-            
-            let chartsData = [];
-            
-            // LA CORRECTION : On fouille dans le fameux dossier 'groupedCharts' découvert par la sonde !
-            if (data.props && data.props.groupedCharts) {
-                // Chartfox groupe les cartes par catégorie, on rassemble tout dans une seule liste
-                Object.values(data.props.groupedCharts).forEach(group => {
-                    if (Array.isArray(group)) {
-                        chartsData.push(...group);
-                    }
-                });
-            } else if (data.props && data.props.airport && data.props.airport.charts) {
-                // Ancien format au cas où ils reviennent en arrière
-                chartsData = data.props.airport.charts;
-            }
-
-            if (chartsData.length > 0) {
-                chartsData.forEach(chart => {
-                    let type = 'GEN';
-                    const cType = chart.type ? chart.type.toUpperCase() : '';
-                    const cName = chart.name ? chart.name.toUpperCase() : '';
-
-                    // Tri des catégories Chartfox vers notre EFB
-                    if (cType === 'SID' || cName.includes('SID') || cName.includes('DEPARTURE')) type = 'SID';
-                    else if (cType === 'STAR' || cName.includes('STAR') || cName.includes('ARRIVAL')) type = 'STAR';
-                    else if (cType === 'APP' || cName.includes('ILS') || cName.includes('RNAV') || cName.includes('APPROACH')) type = 'APP';
-                    else if (cType === 'TAXI' || cType === 'GND' || cName.includes('TAXI') || cName.includes('PARKING')) type = 'GND';
-
-                    // On évite d'afficher 2 fois la carte VAC si Chartfox l'a déjà
-                    const isDuplicateVAC = type === 'GEN' && cName.includes('VAC') && icao.startsWith('LF');
-                    
-                    // Sécurité : Chartfox renvoie parfois des liens vides
-                    if (!isDuplicateVAC && chart.url) {
-                        foundCharts.push({
-                            id: chart.chartId || chart.id || `${icao}_${Math.random()}`,
-                            icao: icao,
-                            type: type,
-                            name: chart.name || 'Carte IFR',
-                            url: chart.url
-                        });
-                    }
-                });
-            }
-        } else {
-            console.warn("Chartfox a renvoyé une erreur réseau.");
+        
+        if (!response.ok) {
+            document.getElementById('diag-1').innerHTML = `❌ 1. Erreur Serveur (HTTP ${response.status}).`;
+            throw new Error("HTTP Failed");
         }
+
+        // On lit d'abord en texte brut pour éviter que l'application ne plante si Chartfox envoie du HTML
+        const textData = await response.text(); 
+        
+        // Si Chartfox nous renvoie la page de connexion, c'est que le Cookie a expiré !
+        if (textData.includes("<html") || textData.includes("login") || textData.includes("Auth")) {
+             document.getElementById('diag-1').innerHTML = `❌ 1. BLOCAGE : Session VATSIM expirée. Chartfox exige une reconnexion.`;
+             throw new Error("Session Expired");
+        }
+
+        // Si tout va bien, on convertit en JSON
+        const data = JSON.parse(textData);
+        document.getElementById('diag-1').innerHTML = "✅ 1. Base mondiale lue avec succès.";
+        
+        let chartsData = [];
+        
+        if (data.props && data.props.groupedCharts) {
+            Object.values(data.props.groupedCharts).forEach(group => {
+                if (Array.isArray(group)) chartsData.push(...group);
+            });
+        }
+
+        if (chartsData.length > 0) {
+            document.getElementById('diag-2').innerHTML = `✅ 2. ${chartsData.length} cartes extraites pour ${icao}.`;
+            
+            chartsData.forEach(chart => {
+                let type = 'GEN';
+                const cType = chart.type ? chart.type.toUpperCase() : '';
+                const cName = chart.name ? chart.name.toUpperCase() : '';
+
+                if (cType === 'SID' || cName.includes('SID') || cName.includes('DEPARTURE')) type = 'SID';
+                else if (cType === 'STAR' || cName.includes('STAR') || cName.includes('ARRIVAL')) type = 'STAR';
+                else if (cType === 'APP' || cName.includes('ILS') || cName.includes('RNAV') || cName.includes('APPROACH')) type = 'APP';
+                else if (cType === 'TAXI' || cType === 'GND' || cName.includes('TAXI') || cName.includes('PARKING')) type = 'GND';
+
+                const isDuplicateVAC = type === 'GEN' && cName.includes('VAC') && icao.startsWith('LF');
+                
+                // Chartfox peut utiliser plusieurs noms pour l'URL, on les teste tous :
+                const chartUrl = chart.url || chart.link || chart.file_url || chart.pdf_path;
+                
+                if (!isDuplicateVAC && chartUrl) {
+                    foundCharts.push({
+                        id: chart.chartId || chart.id || `${icao}_${Math.random()}`,
+                        icao: icao,
+                        type: type,
+                        name: chart.name || 'Carte IFR',
+                        url: chartUrl
+                    });
+                }
+            });
+            
+            document.getElementById('diag-3').innerHTML = `🏁 3. Création de l'interface...`;
+        } else {
+            document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée dans la base de données pour cet aéroport.`;
+        }
+
     } catch (e) { 
-        console.error("Erreur de liaison avec Cloudflare.");
+        if (e.message !== "HTTP Failed" && e.message !== "Session Expired") {
+            document.getElementById('diag-1').innerHTML = `❌ 1. Erreur d'analyse des données : ${e.message}`;
+        }
     }
 
-    currentCharts = foundCharts;
-    currentFilter = 'ALL'; 
-    renderTabs();
-    renderCategories();
+    // S'il y a une erreur rouge (❌) ou orange (⚠️), on fige le terminal pour lire. Sinon, on fonce !
+    const hasError = document.getElementById('diag-1').innerHTML.includes('❌') || document.getElementById('diag-2').innerHTML.includes('⚠️');
+    
+    setTimeout(() => {
+        currentCharts = foundCharts;
+        currentFilter = 'ALL'; 
+        renderTabs();
+        renderCategories();
+    }, hasError ? 5000 : 300); // 5 secondes si erreur, 0.3s si succès
 }
 
 // --- 6. Rendu Graphique (Onglets, Listes, Dock) ---
