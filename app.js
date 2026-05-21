@@ -1,6 +1,7 @@
-// --- 1. État de l'application ---
+// --- 1. État de l'application et Mémoire Cache ---
 let currentCharts = [];
 let pinnedCharts = [];
+const pdfCache = {}; // Conserve les cartes déjà chargées pour un accès instantané
 
 // --- 2. Récupération des éléments du DOM ---
 const searchBtn = document.getElementById('search-btn');
@@ -44,9 +45,10 @@ function performSearch() {
     airportTitle.textContent = "Aéroport : " + icao;
     
     const airacDate = getCurrentAiracDate();
+    // URL officielle et exacte sur les serveurs du SIA
     const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${airacDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
 
-    // On peuple la liste avec le nom de l'OACI inclus pour bien les différencier
+    // On injecte le code OACI directement dans le titre pour différencier les cartes
     currentCharts = [
         { 
             id: icao + '_VAC', 
@@ -81,7 +83,7 @@ function createChartElement(chart) {
     const span = document.createElement('span');
     span.className = 'chart-name';
     
-    // Assignation de la couleur du badge
+    // Attribution de la couleur du badge
     let badgeClass = 'bg-info';
     if (chart.type === 'SID') badgeClass = 'bg-sid';
     if (chart.type === 'STAR') badgeClass = 'bg-star';
@@ -90,9 +92,10 @@ function createChartElement(chart) {
 
     span.innerHTML = `<span class="badge ${badgeClass}">${chart.type}</span> ${chart.name}`;
     
-    // Afficher le PDF au clic
+    // Clic sur le texte -> Afficher le PDF au centre
     span.addEventListener('click', () => loadChart(chart.url));
 
+    // Bouton d'épinglage (Punaise)
     const pinBtn = document.createElement('button');
     pinBtn.className = 'pin-btn';
     pinBtn.innerHTML = '📌';
@@ -102,7 +105,7 @@ function createChartElement(chart) {
     }
 
     pinBtn.addEventListener('click', (event) => {
-        event.stopPropagation(); 
+        event.stopPropagation(); // Empêche l'ouverture de la carte lors du clic sur l'épingle
         togglePin(chart);
     });
 
@@ -112,33 +115,58 @@ function createChartElement(chart) {
     return li;
 }
 
-// --- 8. Charger et afficher le PDF (Méthode Blob avec Proxy Alternatif) ---
+// --- 8. Charger et afficher le PDF (Méthode Blob + Cache + Secours) ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
-    viewerPlaceholder.textContent = "Chargement de la carte en cours...";
+    
+    // Étape A : Vérification de la mémoire cache locale
+    if (pdfCache[url]) {
+        pdfViewer.src = pdfCache[url] + "#view=FitH";
+        pdfViewer.style.display = 'block';
+        viewerPlaceholder.style.display = 'none';
+        return;
+    }
+
+    // Étape B : Si pas en cache, on affiche l'écran de chargement
+    viewerPlaceholder.innerHTML = "Chargement de la carte en cours...<br><span style='font-size: 11px; color: #888;'>(Cela peut prendre un moment via le serveur relais public)</span>";
     viewerPlaceholder.style.display = 'block';
 
     try {
-        // Nouveau proxy plus stable pour les fichiers binaires (PDF)
+        // Proxy public AllOrigins pour casser les sécurités de blocage d'intégration
         const proxyUrl = "https://api.allorigins.win/raw?url=";
-        
-        // On télécharge le PDF via le nouveau proxy
         const response = await fetch(proxyUrl + encodeURIComponent(url));
         
-        if (!response.ok) throw new Error("Erreur réseau");
+        if (!response.ok) throw new Error("Réponse réseau incorrecte ou rate-limit");
         
-        // Transformation en fichier binaire local
+        // Téléchargement du fichier en tâche de fond et conversion en binaire local
         const blob = await response.blob();
         const localUrl = URL.createObjectURL(blob);
         
-        // Affichage dans l'iframe
+        // Sauvegarde de l'URL locale dans la mémoire cache
+        pdfCache[url] = localUrl;
+        
+        // Affichage dans l'application
         viewerPlaceholder.style.display = 'none';
         pdfViewer.src = localUrl + "#view=FitH";
         pdfViewer.style.display = 'block';
         
     } catch (error) {
-        console.error("Erreur de chargement:", error);
-        viewerPlaceholder.textContent = "Impossible de charger la carte. Si le problème persiste, désactivez votre bloqueur de pub.";
+        console.error("Erreur de transit via le proxy:", error);
+        
+        // Étape C : Plan de secours élégant si le proxy gratuit rejette la demande (Rate limiting)
+        viewerPlaceholder.innerHTML = `
+            <div style="text-align: center; background: #222; padding: 25px; border-radius: 6px; border: 1px solid #444; max-width: 85%; margin: auto;">
+                <p style="color: #ffc107; margin-bottom: 15px; font-size: 14px; font-weight: bold;">⚠️ Le serveur relais public est temporairement saturé.</p>
+                <p style="color: #aaa; margin-bottom: 20px; font-size: 12px;">Pour ne pas vous bloquer, vous pouvez ouvrir la carte officielle directement dans un onglet séparé.</p>
+                <button id="fallback-btn" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px;">
+                    Ouvrir la carte (Nouvel onglet)
+                </button>
+            </div>
+        `;
+        
+        document.getElementById('fallback-btn').addEventListener('click', () => {
+            window.open(url, '_blank');
+        });
     }
 }
 
@@ -169,5 +197,5 @@ function renderPinned() {
     });
 }
 
-// --- Initialisation ---
+// --- Initialisation au démarrage ---
 renderPinned();
