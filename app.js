@@ -42,76 +42,58 @@ function getAiracDates() {
     };
 }
 
-// --- 5. La fonction de recherche (Scraping du SIA - VFR + IFR) ---
+// --- 5. La fonction de recherche (Moteur CHARTFOX + Secours VFR SIA) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = "Aéroport : " + icao;
+    categoriesContainer.innerHTML = "<p style='padding: 15px; color: #aaa; text-align: center; font-size: 14px;'>📡 Interrogation des serveurs Chartfox...<br><br>Recherche mondiale en cours...</p>";
     
-    // Message de chargement pendant que l'iPad lit le code source du SIA
-    categoriesContainer.innerHTML = "<p style='padding: 15px; color: #aaa; text-align: center; font-size: 14px;'>📡 Recherche et tri des cartes IFR/VFR en cours...<br><br>Veuillez patienter...</p>";
-    
-    const dates = getAiracDates();
     let foundCharts = [];
-    
-    // --- PARTIE 1 : Ajout immédiat de la carte VAC (VFR) ---
-    const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
-    foundCharts.push({ 
-        id: icao + '_VAC', 
-        type: 'INFO', 
-        name: `Carte VAC VFR (${icao})`, 
-        url: siaVacUrl 
-    });
 
-    // --- PARTIE 2 : Scraping IFR de la page eAIP officielle ---
-    const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
-    const proxyUrl = "https://api.allorigins.win/raw?url=";
-
+    // 1. Notre algorithme VFR local (Filet de sécurité garanti pour la France)
     try {
-        const response = await fetch(proxyUrl + encodeURIComponent(eAipUrl));
+        const dates = getAiracDates(); // Assurez-vous d'avoir gardé la fonction getAiracDates() précédente !
+        const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
+        foundCharts.push({ 
+            id: icao + '_VAC', type: 'INFO', name: `Carte VAC VFR (${icao})`, url: siaVacUrl 
+        });
+    } catch(e) { /* Si la date plante, on ignore */ }
+
+    // 2. Appel à l'API mondiale de Chartfox
+    try {
+        // Endpoint public de l'API Chartfox (via notre proxy pour contourner la sécurité navigateur)
+        const chartfoxApiUrl = `https://api.chartfox.org/charts/${icao}`;
+        const proxyUrl = "https://api.allorigins.win/raw?url=";
+        
+        const response = await fetch(proxyUrl + encodeURIComponent(chartfoxApiUrl));
         
         if (response.ok) {
-            const htmlText = await response.text();
+            const data = await response.json();
+            // Chartfox renvoie souvent les données sous la forme d'un objet contenant un tableau "data"
+            const chartsArray = data.data || data; 
             
-            // Regex puissante pour trouver les liens cachés de type "Cartes/[OACI]/...pdf"
-            const regex = /href="(Cartes\/[^"]+\.pdf)"[^>]*>(.*?)<\/a>/gi;
-            let match;
-            let idCounter = 1;
-            
-            while ((match = regex.exec(htmlText)) !== null) {
-                const relativeLink = match[1];
-                
-                // Nettoyage des balises HTML et des espaces invisibles du SIA
-                let chartName = match[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-                if (chartName === '') chartName = "Carte IFR";
-
-                const absoluteUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/${relativeLink}`;
-                
-                // Le "Cerveau" : Tri automatique en catégories (SID, STAR, etc.)
-                let type = 'INFO';
-                const nameUpper = chartName.toUpperCase();
-                const linkUpper = relativeLink.toUpperCase();
-                
-                if (nameUpper.includes('SID') || linkUpper.includes('SID')) type = 'SID';
-                else if (nameUpper.includes('STAR') || linkUpper.includes('STAR') || nameUpper.includes('ARRIVEE')) type = 'STAR';
-                else if (nameUpper.includes('APPROCHE') || nameUpper.includes('ILS') || nameUpper.includes('LOC') || nameUpper.includes('RNAV') || nameUpper.includes('VOR') || linkUpper.includes('IAC')) type = 'APPR';
-                else if (nameUpper.includes('SOL') || nameUpper.includes('PARKING') || nameUpper.includes('TAXI') || nameUpper.includes('MOUVEMENT') || linkUpper.includes('GMC')) type = 'TAXI';
-                
-                // Ajout uniquement si le lien n'y est pas déjà (le SIA met souvent des doublons)
-                if (!foundCharts.find(c => c.url === absoluteUrl)) {
+            if (Array.isArray(chartsArray) && chartsArray.length > 0) {
+                chartsArray.forEach(chart => {
+                    // Standardisation des catégories reçues pour correspondre à notre EFB
+                    let type = chart.type || 'INFO';
+                    if (type === 'APP') type = 'APPR'; 
+                    
                     foundCharts.push({
-                        id: icao + '_IFR_' + idCounter,
+                        id: chart.chartId || chart.id || Math.random().toString(36).substr(2, 9),
                         type: type,
-                        name: chartName,
-                        url: absoluteUrl
+                        name: chart.chartName || chart.name || `Carte IFR`,
+                        // L'API Chartfox nous donne ici le lien EXACT vers le PDF officiel !
+                        url: chart.url || chart.link 
                     });
-                    idCounter++;
-                }
+                });
             }
+        } else {
+            console.warn(`L'API Chartfox a renvoyé une erreur ${response.status}.`);
         }
     } catch (e) {
-        console.log("L'aéroport n'a pas de cartes IFR ou la connexion est ralentie.");
+        console.error("Erreur de communication avec Chartfox :", e);
     }
     
     // --- Fin de la recherche : Mise à jour de l'affichage ---
