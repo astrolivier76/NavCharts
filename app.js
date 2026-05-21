@@ -132,47 +132,85 @@ async function performSearch() {
                 
                 const htmlText = await response.text();
                 
-                // NOUVEAU SCANNER : Il cherche une case (<td>) avec le nom, suivie directement d'une case avec le lien PDF. Il ne s'arrête jamais.
-                const regex = /<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>\s*<a[^>]+href=["']([^"']+\.pdf)["']/gi;
-                let match;
+                // LE CORRECTIF EST ICI : On découpe d'abord le tableau ligne par ligne (<tr>)
+                const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+                let matchRow;
                 
-                while ((match = regex.exec(htmlText)) !== null) {
-                    // Nettoyage parfait du nom
-                    let name = match[1].replace(/<[^>]+>/g, '').replace(/\*\*CHANGED\*\*/gi, '').replace(/\s+/g, ' ').trim();
-                    let url = match[2].trim();
+                while ((matchRow = rowRegex.exec(htmlText)) !== null) {
+                    let rowHtml = matchRow[1];
                     
-                    if (url.startsWith('http:')) url = url.replace('http:', 'https:');
-                    if (!url.startsWith('http')) {
-                        if (url.startsWith('/')) url = 'https://www.airnav.com' + url;
-                        else url = 'https://www.airnav.com/departures/' + url;
-                    }
-
-                    // Filtre pour rejeter les faux liens (comme "Download PDF Help")
-                    if (name.length > 2 && !name.toLowerCase().includes('pdf') && !name.toLowerCase().includes('download')) {
-                        let type = 'GEN';
-                        const n = name.toUpperCase();
+                    // Si cette ligne contient au moins un fichier PDF
+                    if (rowHtml.match(/\.pdf["']/i)) {
                         
-                        if (n.includes('DP') || n.includes('DEP') || n.includes('SID') || n.includes('DEPARTURE')) type = 'SID';
-                        else if (n.includes('STAR') || n.includes('ARRIVAL')) type = 'STAR';
-                        else if (n.includes('ILS') || n.includes('RNAV') || n.includes('LOC') || n.includes('VOR') || n.includes('APPROACH') || n.includes('IAP')) type = 'APP';
-                        else if (n.includes('DIAGRAM') || n.includes('TAXI') || n.includes('HOT SPOT')) type = 'GND';
+                        // On extrait le contenu de toutes les cases (<td>) de cette ligne
+                        const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+                        let cells = [];
+                        let matchCell;
+                        while ((matchCell = cellRegex.exec(rowHtml)) !== null) {
+                            cells.push(matchCell[1]);
+                        }
+                        
+                        // S'il y a au moins 2 colonnes (Nom de la carte + Liens)
+                        if (cells.length >= 2) {
+                            // Nettoyage parfait du nom : On enlève le HTML et les balises **CHANGED**
+                            let name = cells[0].replace(/<[^>]+>/g, '').replace(/\*\*CHANGED\*\*/gi, '').replace(/\s+/g, ' ').trim();
+                            let linkCell = cells[1];
+                            
+                            // On vérifie que le nom n'est pas "download" (ce qui voudrait dire qu'on a mal lu)
+                            if (name.length > 2 && !name.toLowerCase().includes('download')) {
+                                
+                                // On extrait TOUS les liens PDF de cette ligne (Cas des cartes en plusieurs pages)
+                                let linkRegex = /href=["']([^"']+\.pdf)["']/gi;
+                                let matchLink;
+                                let links = [];
+                                
+                                while ((matchLink = linkRegex.exec(linkCell)) !== null) {
+                                    links.push(matchLink[1].trim());
+                                }
+                                
+                                // Pour chaque lien trouvé sur cette carte
+                                links.forEach((url, index) => {
+                                    // Sécurisation de l'URL pour l'iPad
+                                    if (url.startsWith('http:')) url = url.replace('http:', 'https:');
+                                    if (!url.startsWith('http')) {
+                                        if (url.startsWith('/')) url = 'https://www.airnav.com' + url;
+                                        else url = 'https://www.airnav.com/departures/' + url;
+                                    }
 
-                        // On vérifie qu'on n'a pas déjà ajouté cette carte (anti-doublon)
-                        if (!foundCharts.find(c => c.url === url)) {
-                            foundCharts.push({
-                                id: `${icao}_${Math.random()}`,
-                                icao: icao,
-                                type: type,
-                                name: name,
-                                url: url,
-                                source: 'NATIVE' // Autorise le lecteur interne
-                            });
+                                    // Ajout du numéro de page si nécessaire
+                                    let finalName = name;
+                                    if (links.length > 1) {
+                                        finalName = `${name} (Page ${index + 1})`;
+                                    }
+
+                                    // Classement intelligent
+                                    let type = 'GEN';
+                                    const n = finalName.toUpperCase();
+                                    
+                                    if (n.includes('DP') || n.includes('DEP') || n.includes('SID') || n.includes('DEPARTURE')) type = 'SID';
+                                    else if (n.includes('STAR') || n.includes('ARRIVAL')) type = 'STAR';
+                                    else if (n.includes('ILS') || n.includes('RNAV') || n.includes('LOC') || n.includes('VOR') || n.includes('APPROACH') || n.includes('IAP') || n.includes('COPTER')) type = 'APP';
+                                    else if (n.includes('DIAGRAM') || n.includes('TAXI') || n.includes('HOT SPOT')) type = 'GND';
+
+                                    // On ajoute à la liste si elle n'y est pas déjà
+                                    if (!foundCharts.find(c => c.url === url)) {
+                                        foundCharts.push({
+                                            id: `${icao}_${Math.random()}`,
+                                            icao: icao,
+                                            type: type,
+                                            name: finalName,
+                                            url: url,
+                                            source: 'NATIVE' // Autorise le lecteur interne !
+                                        });
+                                    }
+                                });
+                            }
                         }
                     }
                 }
                 
                 if (foundCharts.length > 0) {
-                    document.getElementById('diag-2').innerHTML = `✅ 2. Scraping AirNav réussi.`;
+                    document.getElementById('diag-2').innerHTML = `✅ 2. Lignes aspirées avec succès.`;
                     document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes natives prêtes.`;
                 } else {
                     document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée. Bascule sur Chartfox...`;
@@ -365,6 +403,7 @@ async function loadChart(chartObj) {
     pdfViewer.style.display = 'none';
     viewerPlaceholder.style.display = 'block';
 
+    // === CAS 1 : C'est une carte étrangère (Chartfox) ===
     if (chartObj.source === 'CHARTFOX') {
         const targetUrl = url.startsWith('http') ? url : `https://chartfox.org${url}`;
         viewerPlaceholder.innerHTML = `
@@ -379,6 +418,7 @@ async function loadChart(chartObj) {
         return;
     }
 
+    // === CAS 2 : FRANCE & ÉTATS-UNIS (NATIVE) ===
     if (pdfCache[url]) {
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
