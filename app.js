@@ -19,16 +19,13 @@ searchInput.addEventListener('keypress', (e) => {
 
 // --- 4. Générateur automatique de cycle AIRAC ---
 function getCurrentAiracDate() {
-    // Le cycle de base utilisé comme repère mathématique
     const baseAirac = new Date('2024-01-25T00:00:00Z');
     const now = new Date();
     
-    // Calcul du nombre de cycles de 28 jours écoulés
     const msPerDay = 1000 * 60 * 60 * 24;
     const diffDays = Math.floor((now - baseAirac) / msPerDay);
     const cyclesPassed = Math.floor(diffDays / 28);
     
-    // Détermination de la date du cycle actuel
     const currentAirac = new Date(baseAirac.getTime() + cyclesPassed * 28 * msPerDay);
     
     const day = String(currentAirac.getUTCDate()).padStart(2, '0');
@@ -36,26 +33,24 @@ function getCurrentAiracDate() {
     const month = monthNames[currentAirac.getUTCMonth()];
     const year = currentAirac.getUTCFullYear();
     
-    // Retourne le format exact attendu par le SIA (ex: 14_MAY_2026)
     return `${day}_${month}_${year}`;
 }
 
-// --- 5. La vraie fonction de recherche ---
+// --- 5. La fonction de recherche (Connectée au SIA) ---
 function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = "Aéroport : " + icao;
-    const airacDate = getCurrentAiracDate();
     
-    // Le lien direct et pur du SIA
+    const airacDate = getCurrentAiracDate();
     const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${airacDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
 
+    // On peuple la liste avec le nom de l'OACI inclus pour bien les différencier
     currentCharts = [
         { 
             id: icao + '_VAC', 
-            type: 'INFO',
-            // On ajoute le code OACI dans le nom pour bien les différencier
+            type: 'INFO', 
             name: `Carte VAC VFR (${icao})`, 
             url: siaVacUrl 
         }
@@ -117,10 +112,32 @@ function createChartElement(chart) {
     return li;
 }
 
-// --- 8. Charger et afficher le PDF ---
-function loadChart(url) {
-    // Au lieu de l'afficher dans l'iframe, on ouvre un nouvel onglet
-    window.open(url, '_blank');
+// --- 8. Charger et afficher le PDF (Méthode de téléchargement invisible) ---
+async function loadChart(url) {
+    pdfViewer.style.display = 'none';
+    viewerPlaceholder.textContent = "Chargement de la carte en cours...";
+    viewerPlaceholder.style.display = 'block';
+
+    try {
+        const proxyUrl = "https://corsproxy.io/?";
+        // On télécharge le PDF en arrière-plan via le proxy
+        const response = await fetch(proxyUrl + encodeURIComponent(url));
+        
+        if (!response.ok) throw new Error("Erreur réseau");
+        
+        // On crée un fichier local temporaire
+        const blob = await response.blob();
+        const localUrl = URL.createObjectURL(blob);
+        
+        // On l'affiche (les sécurités du navigateur sautent car c'est devenu un fichier local)
+        viewerPlaceholder.style.display = 'none';
+        pdfViewer.src = localUrl + "#view=FitH";
+        pdfViewer.style.display = 'block';
+        
+    } catch (error) {
+        console.error("Erreur de chargement:", error);
+        viewerPlaceholder.textContent = "Impossible de charger la carte (Vérifiez le code OACI).";
+    }
 }
 
 // --- 9. Gérer l'ajout ou le retrait d'une épingle ---
