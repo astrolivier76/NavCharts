@@ -5,7 +5,7 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre proxy Cloudflare (Sert à débloquer les PDF)
+// L'URL de votre proxy Cloudflare (Votre passe-partout personnel)
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories
@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE INTÉGRAL (FRANCE + USA + RESTE DU MONDE) ---
+// --- 5. MOTEUR HYBRIDE INTÉGRAL ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -120,20 +120,15 @@ async function performSearch() {
         // ==========================================
         else if (icao.startsWith('K')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Moteur FAA engagé.`;
-            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion à la FAA via tunnel neutre...`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion à la FAA via votre serveur privé...`;
             
             const faaUrl = `https://api.aviationapi.com/v1/charts?apt=${icao}`;
             
-            // LA CORRECTION : Utilisation de AllOrigins pour éviter le blocage CORS du navigateur
-            let response;
-            try {
-                response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(faaUrl)}`);
-            } catch (err) {
-                // Tunnel de secours ultra-robuste
-                response = await fetch(`https://corsproxy.io/?${encodeURIComponent(faaUrl)}`);
-            }
+            // LA CORRECTION : On passe uniquement par votre propre proxy Cloudflare !
+            // Aucun navigateur ne le bloquera car c'est une adresse reconnue et de confiance.
+            const response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(faaUrl)}`);
             
-            if (!response || !response.ok) throw new Error("Le serveur de la FAA a bloqué la connexion.");
+            if (!response.ok) throw new Error("Erreur de communication avec le serveur FAA.");
             
             const data = await response.json();
             
