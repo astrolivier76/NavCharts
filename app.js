@@ -3,7 +3,7 @@ let currentCharts = [];
 let pinnedCharts = JSON.parse(localStorage.getItem('savedDock')) || []; 
 const pdfCache = {}; 
 let currentFilter = 'ALL'; 
-let currentActiveUrl = ''; // Pour garder la carte cliquée en surbrillance
+let currentActiveUrl = '';
 
 // Définition des catégories "Chartfox style"
 const CATEGORIES = [
@@ -15,7 +15,7 @@ const CATEGORIES = [
     { id: 'APP', label: 'APP' }
 ];
 
-// --- DOM Elements ---
+// --- 2. DOM Elements ---
 const searchBtn = document.getElementById('search-btn');
 const searchInput = document.getElementById('airport-search');
 const airportTitle = document.getElementById('airport-title');
@@ -25,11 +25,11 @@ const dockContainer = document.getElementById('dock-container');
 const pdfViewer = document.getElementById('pdf-viewer');
 const viewerPlaceholder = document.getElementById('viewer-placeholder');
 
-// --- Events ---
+// --- 3. Events ---
 searchBtn.addEventListener('click', performSearch);
 searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') performSearch(); });
 
-// --- Moteur de Scraping (Anti-CORS) ---
+// --- 4. Outil AIRAC ---
 function getAiracDates() {
     const baseAirac = new Date('2024-01-25T00:00:00Z');
     const now = new Date();
@@ -42,21 +42,34 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
+// --- 5. Moteur de Scraping (Avec Terminal de Débogage) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = icao;
-    categoriesContainer.innerHTML = "<p class='empty-msg'>📡 Scraping SIA en cours...</p>";
+    
+    // Terminal X-Ray
+    categoriesContainer.innerHTML = `
+        <div style='padding: 15px; color: #00ff00; font-size: 12px; font-family: monospace; background: #111; border: 1px solid #333; margin: 10px; border-radius: 4px; box-shadow: inset 0 0 10px #000;'>
+            <strong style='color: #007bff;'>[BOOT - RECHERCHE ${icao}]</strong><br><br>
+            <span id="diag-1">⏳ 1. Génération lien VAC...</span><br>
+            <span id="diag-2"></span><br>
+            <span id="diag-3"></span><br>
+            <span id="diag-4"></span>
+        </div>
+    `;
     
     const dates = getAiracDates();
     let foundCharts = [];
     
-    // 1. VAC (Classée en GEN)
+    // 1. VAC
     const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
     foundCharts.push({ id: `${icao}_VAC`, icao: icao, type: 'GEN', name: `VAC VFR`, url: siaVacUrl });
+    document.getElementById('diag-1').innerHTML = "✅ 1. Lien VAC VFR généré.";
 
-    // 2. IFR
+    // 2. IFR Scraping
+    document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion sécurisée au SIA...`;
     const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(eAipUrl)}&disableCache=true`;
 
@@ -65,9 +78,14 @@ async function performSearch() {
         if (response.ok) {
             const data = await response.json(); 
             if (data.contents && !data.contents.includes("404 Not Found")) {
+                const htmlText = data.contents;
+                document.getElementById('diag-2').innerHTML = `✅ 2. Code source reçu (${htmlText.length} octets).`;
+                document.getElementById('diag-3').innerHTML = "⏳ 3. Extraction des PDF...";
+
                 const regex = /href=['"]([^'"]+\.pdf)['"][^>]*>(.*?)<\/a>/gi;
-                let match; let idCounter = 1;
-                while ((match = regex.exec(data.contents)) !== null) {
+                let match; let idCounter = 1; let rawLinksFound = 0;
+                while ((match = regex.exec(htmlText)) !== null) {
+                    rawLinksFound++;
                     let relativeLink = match[1];
                     let chartName = match[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
                     if (chartName.length < 3) chartName = (relativeLink.match(/([^\/]+)\.pdf$/i) || [])[1]?.replace(/_/g, ' ') || `Carte ${idCounter}`;
@@ -78,7 +96,6 @@ async function performSearch() {
                     if (absoluteUrl.toUpperCase().includes(icao)) {
                         let type = 'GEN';
                         const n = chartName.toUpperCase(); const l = absoluteUrl.toUpperCase();
-                        // Mapping "Chartfox"
                         if (n.includes('SID') || l.includes('SID') || n.includes('DÉP') || l.includes('DEP')) type = 'SID';
                         else if (n.includes('STAR') || l.includes('STAR') || n.includes('ARR')) type = 'STAR';
                         else if (n.includes('APP') || n.includes('ILS') || n.includes('LOC') || n.includes('RNAV') || n.includes('VOR') || l.includes('IAC')) type = 'APP';
@@ -89,17 +106,30 @@ async function performSearch() {
                         }
                     }
                 }
+                document.getElementById('diag-3').innerHTML = `✅ 3. Extraction terminée (${rawLinksFound} trouvés).`;
+                document.getElementById('diag-4').innerHTML = `🏁 4. Validation : ${foundCharts.length - 1} cartes IFR.`;
+            } else {
+                document.getElementById('diag-2').innerHTML = `⚠️ 2. Page IFR introuvable (Aéroport VFR uniquement ou erreur proxy).`;
             }
+        } else {
+            document.getElementById('diag-2').innerHTML = `❌ 2. Échec HTTP du Proxy (${response.status}).`;
         }
-    } catch (e) { console.log("Erreur réseau"); }
+    } catch (e) { 
+        document.getElementById('diag-2').innerHTML = `❌ 2. Crash réseau (Le proxy sature).`;
+    }
 
-    currentCharts = foundCharts;
-    currentFilter = 'ALL'; 
-    renderTabs();
-    renderCategories();
+    // Gestion de l'affichage du terminal
+    const hasError = document.getElementById('diag-2').innerHTML.includes('❌') || document.getElementById('diag-2').innerHTML.includes('⚠️');
+    
+    setTimeout(() => {
+        currentCharts = foundCharts;
+        currentFilter = 'ALL'; 
+        renderTabs();
+        renderCategories();
+    }, hasError ? 3000 : 800);
 }
 
-// --- Rendu Graphique ---
+// --- 6. Rendu Graphique (Onglets, Listes, Dock) ---
 function renderTabs() {
     tabsContainer.innerHTML = '';
     CATEGORIES.forEach(tab => {
@@ -126,7 +156,6 @@ function renderDock() {
     dockContainer.innerHTML = '';
     if (pinnedCharts.length === 0) return dockContainer.innerHTML = '<p class="empty-msg">Dock vide.<br>Cliquez sur 📌 pour épingler.</p>';
 
-    // Grouper les épingles par Aéroport (ICAO)
     const grouped = {};
     pinnedCharts.forEach(chart => {
         if (!grouped[chart.icao]) grouped[chart.icao] = [];
@@ -145,7 +174,6 @@ function renderDock() {
 
 function createChartElement(chart, isDock = false) {
     const div = document.createElement('div');
-    // Ajoute la classe 'active' si c'est la carte actuellement visionnée
     div.className = `chart-item ${currentActiveUrl === chart.url ? 'active' : ''}`;
     div.setAttribute('data-type', chart.type);
 
@@ -154,28 +182,48 @@ function createChartElement(chart, isDock = false) {
     span.textContent = chart.name;
     span.onclick = () => { 
         currentActiveUrl = chart.url; 
-        renderCategories(); renderDock(); // Force le rafraîchissement des couleurs
+        renderCategories(); renderDock(); 
         loadChart(chart.url); 
     };
 
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'actions-container';
+
+    // Bouton d'ouverture rapide (nouvel onglet)
+    const externalBtn = document.createElement('button');
+    externalBtn.className = 'external-btn';
+    externalBtn.innerHTML = '↗️';
+    externalBtn.title = "Ouvrir instantanément dans un nouvel onglet";
+    externalBtn.onclick = (e) => { 
+        e.stopPropagation(); 
+        window.open(chart.url, '_blank'); 
+    };
+
+    // Bouton Punaise / Croix
     const pinBtn = document.createElement('button');
     pinBtn.className = 'pin-btn';
     pinBtn.innerHTML = isDock ? '✖' : '📌';
-    pinBtn.onclick = (e) => { e.stopPropagation(); togglePin(chart); };
+    pinBtn.title = isDock ? "Retirer l'épingle" : "Épingler la carte";
+    pinBtn.onclick = (e) => { 
+        e.stopPropagation(); 
+        togglePin(chart); 
+    };
+
+    actionsDiv.appendChild(externalBtn);
+    actionsDiv.appendChild(pinBtn);
 
     div.appendChild(span);
-    div.appendChild(pinBtn);
+    div.appendChild(actionsDiv);
     return div;
 }
 
-// --- Logique Épingles (LocalStorage) ---
+// --- 7. Logique Épingles (LocalStorage) ---
 function togglePin(chart) {
     const index = pinnedCharts.findIndex(c => c.url === chart.url);
     if (index > -1) {
         pinnedCharts.splice(index, 1);
     } else {
         pinnedCharts.push(chart);
-        // Pré-chargement discret en arrière-plan
         if (!pdfCache[chart.url]) {
             fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(chart.url)}&cb=${Date.now()}`)
                 .then(res => res.ok ? res.blob() : Promise.reject())
@@ -187,7 +235,7 @@ function togglePin(chart) {
     renderDock();
 }
 
-// --- Lecteur PDF avec Secours Fermable ---
+// --- 8. Lecteur PDF avec Secours Fermable ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
     if (pdfCache[url]) {
@@ -210,10 +258,10 @@ async function loadChart(url) {
         pdfViewer.style.display = 'block';
     } catch (e) {
         viewerPlaceholder.innerHTML = `
-            <div class="popup-box" style="position: relative;">
+            <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
                 <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Le proxy public limite la bande passante.</p>
-                <button onclick="window.open('${url}', '_blank')" style="padding: 10px 15px; background: #00a651; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                <button onclick="window.open('${url}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
                     Ouvrir le PDF externe
                 </button>
             </div>
@@ -222,6 +270,6 @@ async function loadChart(url) {
     }
 }
 
-// --- Initialisation ---
+// --- Initialisation au démarrage ---
 renderTabs();
 renderDock();
