@@ -5,7 +5,7 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre proxy Cloudflare (Sert à débloquer les PDF)
+// L'URL de votre proxy Cloudflare (Le passe-partout universel)
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories
@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE INTÉGRAL (FRANCE + USA + RESTE DU MONDE) ---
+// --- 5. MOTEUR HYBRIDE INTÉGRAL ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -65,7 +65,7 @@ async function performSearch() {
 
     try {
         // ==========================================
-        // MOTEUR 1 : FRANCE (SIA) - Lecture 100% Native
+        // MOTEUR 1 : FRANCE (SIA) - Lecture Native
         // ==========================================
         if (icao.startsWith('LF')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone France. Moteur SIA engagé.`;
@@ -116,7 +116,7 @@ async function performSearch() {
             }
         } 
         // ==========================================
-        // MOTEUR 2 : ÉTATS-UNIS (FAA) - Lecture 100% Native
+        // MOTEUR 2 : ÉTATS-UNIS (FAA) - Lecture Native
         // ==========================================
         else if (icao.startsWith('K')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Moteur FAA engagé.`;
@@ -124,7 +124,10 @@ async function performSearch() {
             
             const faaUrl = `https://api.aviationapi.com/v1/charts?apt=${icao}`;
             
-            const response = await fetch(faaUrl);
+            // LA CORRECTION EST ICI : On passe par Cloudflare pour éviter le blocage CORS du navigateur
+            const proxyFaaUrl = `${MY_PROXY}?url=${encodeURIComponent(faaUrl)}`;
+            
+            const response = await fetch(proxyFaaUrl);
             if (!response.ok) throw new Error("Le serveur de la FAA ne répond pas.");
             
             const data = await response.json();
@@ -146,7 +149,7 @@ async function performSearch() {
                         type: type,
                         name: chart.chart_name,
                         url: chart.pdf_path,
-                        source: 'NATIVE' // On indique à l'iPad qu'il peut lire ça en interne !
+                        source: 'NATIVE'
                     });
                 });
                 document.getElementById('diag-2').innerHTML = `✅ 2. API FAA lue avec succès.`;
@@ -157,7 +160,7 @@ async function performSearch() {
             }
         }
         // ==========================================
-        // MOTEUR 3 : RESTE DU MONDE (CHARTFOX) - Liens Externes
+        // MOTEUR 3 : RESTE DU MONDE (CHARTFOX)
         // ==========================================
         else {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone Inter. Indexation Chartfox engagée.`;
@@ -201,7 +204,7 @@ async function performSearch() {
                         type: type,
                         name: chart.name || 'CARTE IFR',
                         url: chartUrl,
-                        source: 'CHARTFOX' // Marqueur pour dire à l'iPad de ne pas l'intégrer
+                        source: 'CHARTFOX' 
                     });
                 });
                 document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes indexées.`;
@@ -275,12 +278,16 @@ function createChartElement(chart, isDock = false) {
     span.className = 'chart-name';
     span.textContent = chart.name;
     
-    // ACTION AU CLIC : On lance notre lecteur
     span.onclick = () => { 
         currentActiveUrl = chart.url; 
         renderCategories(); 
         renderDock(); 
-        loadChart(chart); 
+        
+        if (chart.source === 'CHARTFOX') {
+            window.open(chart.url.startsWith('http') ? chart.url : `https://chartfox.org${chart.url}`, '_blank');
+        } else {
+            loadChart(chart.url); 
+        }
     };
 
     const actionsDiv = document.createElement('div');
@@ -323,29 +330,10 @@ function togglePin(chart) {
     renderDock();
 }
 
-// --- 8. Lecteur PDF (Adapté pour iPad) ---
-async function loadChart(chartObj) {
-    const url = chartObj.url;
+// --- 8. Lecteur PDF (France & USA) ---
+async function loadChart(url) {
     pdfViewer.style.display = 'none';
     
-    // === CAS 1 : C'est une carte étrangère (Chartfox) ===
-    // On affiche un bouton d'ouverture propre pour éviter que l'iPad ne bloque le pop-up
-    if (chartObj.source === 'CHARTFOX') {
-        const targetUrl = url.startsWith('http') ? url : `https://chartfox.org${url}`;
-        viewerPlaceholder.innerHTML = `
-            <div class="popup-box" style="text-align: center; max-width: 400px; padding: 30px;">
-                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold; font-size: 16px;">⚠️ Carte Internationale</p>
-                <p style="font-size: 13px; color: #aaa; margin-bottom: 25px;">Le site Chartfox interdit l'intégration de cette carte au sein de l'EFB.</p>
-                <a href="${targetUrl}" target="_blank" style="display:inline-block; padding: 12px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; width: 100%; box-sizing: border-box;">
-                    Ouvrir sur Safari ↗️
-                </a>
-            </div>
-        `;
-        viewerPlaceholder.style.display = 'block';
-        return;
-    }
-
-    // === CAS 2 : C'est une carte NATIVE (France ou USA) ===
     if (pdfCache[url]) {
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
@@ -357,7 +345,6 @@ async function loadChart(chartObj) {
     viewerPlaceholder.style.display = 'block';
 
     try {
-        // On passe toujours par Cloudflare pour éviter les soucis de sécurité "Mixed Content" de l'iPad
         let response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(url)}`);
         if (!response.ok) throw new Error("Le PDF est inaccessible.");
         
