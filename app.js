@@ -5,8 +5,8 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre proxy privé Cloudflare ultra-rapide
-const MY_PROXY = "https://proxy-efb.alonso-o76.workers.dev/?url=";
+// L'URL de votre NOUVEAU proxy mondial Cloudflare
+const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories "Chartfox style"
 const CATEGORIES = [
@@ -32,7 +32,7 @@ const viewerPlaceholder = document.getElementById('viewer-placeholder');
 searchBtn.addEventListener('click', performSearch);
 searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') performSearch(); });
 
-// --- 4. Outil AIRAC ---
+// --- 4. Outil AIRAC (Filet de sécurité pour la France) ---
 function getAiracDates() {
     const baseAirac = new Date('2024-01-25T00:00:00Z');
     const now = new Date();
@@ -45,93 +45,93 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. Moteur de Scraping (Propulsé par votre Proxy Privé Cloudflare) ---
+// --- 5. Moteur de Recherche Mondial (Chartfox via Cloudflare) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = icao;
     
-    // Terminal de diagnostic en direct
     categoriesContainer.innerHTML = `
         <div style='padding: 15px; color: #00ff00; font-size: 12px; font-family: monospace; background: #111; border: 1px solid #333; margin: 10px; border-radius: 4px; box-shadow: inset 0 0 10px #000;'>
-            <strong style='color: #007bff;'>[LAUNCH - PRIVATE PROXY ON ${icao}]</strong><br><br>
-            <span id="diag-1">⏳ 1. Génération lien VAC VFR...</span><br>
+            <strong style='color: #007bff;'>[GLOBAL UPLINK - ${icao}]</strong><br><br>
+            <span id="diag-1">⏳ 1. Interrogation du réseau mondial...</span><br>
             <span id="diag-2"></span><br>
-            <span id="diag-3"></span><br>
-            <span id="diag-4"></span>
+            <span id="diag-3"></span>
         </div>
     `;
     
-    const dates = getAiracDates();
     let foundCharts = [];
     
-    // 1. VAC (Classée en GEN)
-    const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
-    foundCharts.push({ id: `${icao}_VAC`, icao: icao, type: 'GEN', name: `VAC VFR`, url: siaVacUrl });
-    document.getElementById('diag-1').innerHTML = "✅ 1. Lien VAC VFR généré mathématiquement.";
+    // Bonus : Si c'est en France, on garde notre générateur VAC infaillible
+    if (icao.startsWith('LF')) {
+        const dates = getAiracDates();
+        const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
+        foundCharts.push({ id: `${icao}_VAC_SIA`, icao: icao, type: 'GEN', name: `VAC VFR (SIA)`, url: siaVacUrl });
+    }
 
-    // 2. IFR Scraping via Cloudflare Worker
-    document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion sécurisée au SIA via Cloudflare...`;
-    const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
-    const proxyUrl = MY_PROXY + encodeURIComponent(eAipUrl);
+    // On interroge Chartfox via notre Proxy en Mode API (?icao=...)
+    const proxyUrl = `${MY_PROXY}?icao=${icao}`;
 
     try {
         const response = await fetch(proxyUrl);
         if (response.ok) {
-            // CORRECTION ICI : On lit directement le HTML brut renvoyé par Cloudflare !
-            const htmlText = await response.text(); 
+            const data = await response.json(); 
+            document.getElementById('diag-1').innerHTML = "✅ 1. Base mondiale contactée avec succès.";
             
-            // On vérifie que la page n'est pas une erreur 404 du SIA
-            if (!htmlText.includes("404 Not Found") && htmlText.length > 500) {
-                document.getElementById('diag-2').innerHTML = `✅ 2. Code source SIA injecté (${htmlText.length} octets).`;
-                document.getElementById('diag-3').innerHTML = "⏳ 3. Analyse et tri des trajectoires IFR...";
+            let chartsData = [];
+            // Extraction des données selon l'architecture de Chartfox
+            if (data.props && data.props.airport && data.props.airport.charts) {
+                chartsData = data.props.airport.charts;
+            }
 
-                const regex = /href=['"]([^'"]+\.pdf)['"][^>]*>(.*?)<\/a>/gi;
-                let match; let idCounter = 1; let rawLinksFound = 0;
-                while ((match = regex.exec(htmlText)) !== null) {
-                    rawLinksFound++;
-                    let relativeLink = match[1];
-                    let chartName = match[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-                    if (chartName.length < 3) chartName = (relativeLink.match(/([^\/]+)\.pdf$/i) || [])[1]?.replace(/_/g, ' ') || `Carte ${idCounter}`;
+            if (chartsData.length > 0) {
+                document.getElementById('diag-2').innerHTML = `✅ 2. ${chartsData.length} cartes extraites pour ${icao}.`;
+                
+                chartsData.forEach(chart => {
+                    let type = 'GEN';
+                    const cType = chart.type ? chart.type.toUpperCase() : '';
+                    const cName = chart.name ? chart.name.toUpperCase() : '';
 
-                    let absoluteUrl = relativeLink.startsWith('http') ? relativeLink : 
-                        `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/${relativeLink.replace(/(\.\.\/)+/g, '')}`;
+                    // Tri intelligent
+                    if (cType === 'SID' || cName.includes('SID') || cName.includes('DEPARTURE')) type = 'SID';
+                    else if (cType === 'STAR' || cName.includes('STAR') || cName.includes('ARRIVAL')) type = 'STAR';
+                    else if (cType === 'APP' || cName.includes('ILS') || cName.includes('RNAV') || cName.includes('APPROACH')) type = 'APP';
+                    else if (cType === 'TAXI' || cType === 'GND' || cName.includes('TAXI') || cName.includes('PARKING')) type = 'GND';
+
+                    // Anti-doublon si Chartfox possède déjà la VAC qu'on a générée
+                    const isDuplicateVAC = type === 'GEN' && cName.includes('VAC') && icao.startsWith('LF');
                     
-                    if (absoluteUrl.toUpperCase().includes(icao)) {
-                        let type = 'GEN';
-                        const n = chartName.toUpperCase(); const l = absoluteUrl.toUpperCase();
-                        if (n.includes('SID') || l.includes('SID') || n.includes('DÉP') || l.includes('DEP')) type = 'SID';
-                        else if (n.includes('STAR') || l.includes('STAR') || n.includes('ARR')) type = 'STAR';
-                        else if (n.includes('APP') || n.includes('ILS') || n.includes('LOC') || n.includes('RNAV') || n.includes('VOR') || l.includes('IAC')) type = 'APP';
-                        else if (n.includes('SOL') || n.includes('PRKG') || n.includes('PARKING') || n.includes('TAXI') || l.includes('GMC')) type = 'GND';
-                        
-                        if (!foundCharts.find(c => c.url === absoluteUrl)) {
-                            foundCharts.push({ id: `${icao}_IFR_${idCounter++}`, icao: icao, type: type, name: chartName, url: absoluteUrl });
-                        }
+                    if (!isDuplicateVAC) {
+                        foundCharts.push({
+                            id: chart.chartId || chart.id || `${icao}_${Math.random()}`,
+                            icao: icao,
+                            type: type,
+                            name: chart.name || 'Carte IFR',
+                            url: chart.url
+                        });
                     }
-                }
-                document.getElementById('diag-3').innerHTML = `✅ 3. Extraction terminée (${rawLinksFound} PDF détectés).`;
-                document.getElementById('diag-4').innerHTML = `🏁 4. Base opérationnelle : ${foundCharts.length - 1} cartes IFR valides.`;
+                });
+                
+                document.getElementById('diag-3').innerHTML = `🏁 3. Chargement de l'interface...`;
             } else {
-                document.getElementById('diag-2').innerHTML = `⚠️ 2. Terrain VFR pur ou page IFR absente.`;
+                document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune donnée trouvée sur le réseau mondial.`;
             }
         } else {
-            document.getElementById('diag-2').innerHTML = `❌ 2. Cloudflare a bloqué (${response.status}).`;
+            document.getElementById('diag-1').innerHTML = `❌ 1. Accès refusé (Vérifiez la validité du Token Cloudflare).`;
         }
     } catch (e) { 
-        document.getElementById('diag-2').innerHTML = `❌ 2. Liaison impossible avec le Worker.`;
-        console.error(e);
+        document.getElementById('diag-1').innerHTML = `❌ 1. Erreur de communication avec le serveur Cloudflare.`;
     }
 
-    const hasError = document.getElementById('diag-2').innerHTML.includes('❌') || document.getElementById('diag-2').innerHTML.includes('⚠️');
+    const hasError = document.getElementById('diag-1').innerHTML.includes('❌') || document.getElementById('diag-2').innerHTML.includes('⚠️');
     
     setTimeout(() => {
         currentCharts = foundCharts;
         currentFilter = 'ALL'; 
         renderTabs();
         renderCategories();
-    }, hasError ? 2500 : 500); 
+    }, hasError ? 3000 : 500); 
 }
 
 // --- 6. Rendu Graphique (Onglets, Listes, Dock) ---
@@ -194,17 +194,15 @@ function createChartElement(chart, isDock = false) {
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'actions-container';
 
-    // Bouton d'ouverture en onglet direct (Vitesse lumière sans proxy)
     const externalBtn = document.createElement('button');
     externalBtn.className = 'external-btn';
     externalBtn.innerHTML = '↗️';
-    externalBtn.title = "Lien direct SIA (Plein écran externe)";
+    externalBtn.title = "Lien direct (Plein écran externe)";
     externalBtn.onclick = (e) => { 
         e.stopPropagation(); 
         window.open(chart.url, '_blank'); 
     };
 
-    // Bouton Punaise / Croix
     const pinBtn = document.createElement('button');
     pinBtn.className = 'pin-btn';
     pinBtn.innerHTML = isDock ? '✖' : '📌';
@@ -222,16 +220,16 @@ function createChartElement(chart, isDock = false) {
     return div;
 }
 
-// --- 7. Logique Épingles (LocalStorage avec Pré-chargement Cloudflare) ---
+// --- 7. Logique Épingles (LocalStorage) ---
 function togglePin(chart) {
     const index = pinnedCharts.findIndex(c => c.url === chart.url);
     if (index > -1) {
         pinnedCharts.splice(index, 1);
     } else {
         pinnedCharts.push(chart);
-        // Pré-téléchargement immédiat et ultra-fluide via VOTRE proxy Cloudflare
+        // Préchargement via le Proxy en Mode Fichier (?url=...)
         if (!pdfCache[chart.url]) {
-            fetch(MY_PROXY + encodeURIComponent(chart.url))
+            fetch(`${MY_PROXY}?url=${encodeURIComponent(chart.url)}`)
                 .then(res => res.ok ? res.blob() : Promise.reject())
                 .then(blob => pdfCache[chart.url] = URL.createObjectURL(blob))
                 .catch(() => {});
@@ -241,11 +239,10 @@ function togglePin(chart) {
     renderDock();
 }
 
-// --- 8. Lecteur PDF Propulsé par Cloudflare (0% Échec) ---
+// --- 8. Lecteur PDF Propulsé par Cloudflare ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
     
-    // Si la carte est dans le cache de l'iPad, affichage instantané
     if (pdfCache[url]) {
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
@@ -253,13 +250,13 @@ async function loadChart(url) {
         return;
     }
 
-    viewerPlaceholder.innerHTML = "Téléchargement de la carte via Cloudflare...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Canal Privé Actif</span>";
+    viewerPlaceholder.innerHTML = "Téléchargement de la carte...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau Mondial Connecté</span>";
     viewerPlaceholder.style.display = 'block';
 
     try {
-        // Interrogation de votre Worker Cloudflare
-        const response = await fetch(MY_PROXY + encodeURIComponent(url));
-        if (!response.ok) throw new Error("Erreur Tunnel");
+        // Interrogation de votre Proxy en Mode Fichier (?url=...)
+        const response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(url)}`);
+        if (!response.ok) throw new Error("Erreur Serveur");
         
         const blob = await response.blob();
         pdfCache[url] = URL.createObjectURL(blob);
@@ -268,13 +265,12 @@ async function loadChart(url) {
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
     } catch (e) {
-        // En cas de problème exceptionnel sur le réseau
         viewerPlaceholder.innerHTML = `
             <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
-                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Perturbation du réseau ou de la liaison Cloudflare.</p>
+                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Le fichier PDF source est protégé ou indisponible.</p>
                 <button onclick="window.open('${url}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
-                    Ouvrir en direct (Externe)
+                    Tenter l'ouverture externe ↗️
                 </button>
             </div>
         `;
