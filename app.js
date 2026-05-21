@@ -117,11 +117,11 @@ async function performSearch() {
             }
         } 
         // ==========================================
-        // MOTEUR 2 : ÉTATS-UNIS (AirNav Intégral)
+        // MOTEUR 2 : ÉTATS-UNIS (AirNav Intégral Débridé)
         // ==========================================
         else if (icao.startsWith('K')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Moteur AirNav engagé.`;
-            document.getElementById('diag-2').innerHTML = `⏳ 2. Aspiration de la base de données...`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Aspiration massive de la base de données...`;
             
             const airnavUrl = `https://www.airnav.com/airport/${icao}`;
             const proxyUrl = `${MY_PROXY}?url=${encodeURIComponent(airnavUrl)}`;
@@ -132,44 +132,41 @@ async function performSearch() {
                 
                 const htmlText = await response.text();
                 
-                const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-                let matchRow;
+                // NOUVEAU SCANNER : Il cherche une case (<td>) avec le nom, suivie directement d'une case avec le lien PDF. Il ne s'arrête jamais.
+                const regex = /<td[^>]*>([\s\S]*?)<\/td>\s*<td[^>]*>\s*<a[^>]+href=["']([^"']+\.pdf)["']/gi;
+                let match;
                 
-                while ((matchRow = rowRegex.exec(htmlText)) !== null) {
-                    let rowHtml = matchRow[1];
+                while ((match = regex.exec(htmlText)) !== null) {
+                    // Nettoyage parfait du nom
+                    let name = match[1].replace(/<[^>]+>/g, '').replace(/\*\*CHANGED\*\*/gi, '').replace(/\s+/g, ' ').trim();
+                    let url = match[2].trim();
                     
-                    if (rowHtml.match(/\.pdf["']/i)) {
-                        let nameMatch = rowHtml.match(/<td[^>]*>([\s\S]*?)<\/td>/i);
-                        let linkMatch = rowHtml.match(/href=["']([^"']+\.pdf)["']/i);
+                    if (url.startsWith('http:')) url = url.replace('http:', 'https:');
+                    if (!url.startsWith('http')) {
+                        if (url.startsWith('/')) url = 'https://www.airnav.com' + url;
+                        else url = 'https://www.airnav.com/departures/' + url;
+                    }
+
+                    // Filtre pour rejeter les faux liens (comme "Download PDF Help")
+                    if (name.length > 2 && !name.toLowerCase().includes('pdf') && !name.toLowerCase().includes('download')) {
+                        let type = 'GEN';
+                        const n = name.toUpperCase();
                         
-                        if (nameMatch && linkMatch) {
-                            let name = nameMatch[1].replace(/<[^>]+>/g, '').replace(/\*\*CHANGED\*\*/gi, '').trim();
-                            let url = linkMatch[1].trim();
-                            
-                            if (!url.toLowerCase().startsWith('http')) {
-                                if (url.startsWith('/')) url = 'https://www.airnav.com' + url;
-                                else url = 'https://www.airnav.com/departures/' + url;
-                            }
+                        if (n.includes('DP') || n.includes('DEP') || n.includes('SID') || n.includes('DEPARTURE')) type = 'SID';
+                        else if (n.includes('STAR') || n.includes('ARRIVAL')) type = 'STAR';
+                        else if (n.includes('ILS') || n.includes('RNAV') || n.includes('LOC') || n.includes('VOR') || n.includes('APPROACH') || n.includes('IAP')) type = 'APP';
+                        else if (n.includes('DIAGRAM') || n.includes('TAXI') || n.includes('HOT SPOT')) type = 'GND';
 
-                            if (name.length > 2 && !name.toLowerCase().includes('download')) {
-                                let type = 'GEN';
-                                const n = name.toUpperCase();
-                                
-                                if (n.includes('DP') || n.includes('DEP') || n.includes('SID') || n.includes('DEPARTURE')) type = 'SID';
-                                else if (n.includes('STAR') || n.includes('ARRIVAL')) type = 'STAR';
-                                else if (n.includes('ILS') || n.includes('RNAV') || n.includes('LOC') || n.includes('VOR') || n.includes('APPROACH')) type = 'APP';
-                                else if (n.includes('DIAGRAM') || n.includes('TAXI') || n.includes('HOT SPOT')) type = 'GND';
-
-                                foundCharts.push({
-                                    id: `${icao}_${Math.random()}`,
-                                    icao: icao,
-                                    type: type,
-                                    name: name,
-                                    url: url,
-                                    // LE CORRECTIF EST ICI : NATIVE ordonne à l'application de télécharger le PDF via le proxy Cloudflare !
-                                    source: 'NATIVE' 
-                                });
-                            }
+                        // On vérifie qu'on n'a pas déjà ajouté cette carte (anti-doublon)
+                        if (!foundCharts.find(c => c.url === url)) {
+                            foundCharts.push({
+                                id: `${icao}_${Math.random()}`,
+                                icao: icao,
+                                type: type,
+                                name: name,
+                                url: url,
+                                source: 'NATIVE' // Autorise le lecteur interne
+                            });
                         }
                     }
                 }
@@ -368,7 +365,6 @@ async function loadChart(chartObj) {
     pdfViewer.style.display = 'none';
     viewerPlaceholder.style.display = 'block';
 
-    // === CAS 1 : C'est une carte étrangère (Chartfox) ===
     if (chartObj.source === 'CHARTFOX') {
         const targetUrl = url.startsWith('http') ? url : `https://chartfox.org${url}`;
         viewerPlaceholder.innerHTML = `
@@ -383,7 +379,6 @@ async function loadChart(chartObj) {
         return;
     }
 
-    // === CAS 2 : FRANCE & ÉTATS-UNIS (NATIVE) ===
     if (pdfCache[url]) {
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
@@ -394,7 +389,6 @@ async function loadChart(chartObj) {
     viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau Sécurisé Connecté</span>";
 
     try {
-        // En passant par le proxy, le Mixed Content HTTP vers HTTPS est totalement résolu !
         let response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(url)}`);
         if (!response.ok) throw new Error("Le PDF source est inaccessible.");
         
