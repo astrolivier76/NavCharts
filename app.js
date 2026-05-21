@@ -5,7 +5,7 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre proxy Cloudflare (Votre passe-partout personnel)
+// L'URL de votre proxy Cloudflare
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories
@@ -117,11 +117,11 @@ async function performSearch() {
             }
         } 
         // ==========================================
-        // MOTEUR 2 : ÉTATS-UNIS (NOUVEAU MOTEUR AIRNAV)
+        // MOTEUR 2 : ÉTATS-UNIS (AirNav Intégral)
         // ==========================================
         else if (icao.startsWith('K')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Moteur AirNav engagé.`;
-            document.getElementById('diag-2').innerHTML = `⏳ 2. Aspiration des PDF de la FAA...`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Aspiration de la base de données...`;
             
             const airnavUrl = `https://www.airnav.com/airport/${icao}`;
             const proxyUrl = `${MY_PROXY}?url=${encodeURIComponent(airnavUrl)}`;
@@ -132,32 +132,51 @@ async function performSearch() {
                 
                 const htmlText = await response.text();
                 
-                // On cherche tous les liens PDF dans la page d'AirNav
-                const regex = /<a href=["']([^"']+\.PDF)["'][^>]*>([^<]+)<\/a>/gi;
-                let match;
+                // LA CORRECTION : On découpe le tableau HTML pour choper le VRAI nom de la carte !
+                const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+                let matchRow;
                 
-                while ((match = regex.exec(htmlText)) !== null) {
-                    let url = match[1];
-                    let name = match[2].trim();
+                while ((matchRow = rowRegex.exec(htmlText)) !== null) {
+                    let rowHtml = matchRow[1];
                     
-                    // On s'assure que c'est bien une carte (pas un document publicitaire)
-                    if (url.includes('d-tpp') || url.includes('ifr/PDF')) {
-                        let type = 'GEN';
-                        const n = name.toUpperCase();
+                    // Si la ligne contient un fichier PDF
+                    if (rowHtml.match(/\.pdf["']/i)) {
+                        // On extrait la première colonne (le nom) et le lien
+                        let nameMatch = rowHtml.match(/<td[^>]*>([\s\S]*?)<\/td>/i);
+                        let linkMatch = rowHtml.match(/href=["']([^"']+\.pdf)["']/i);
                         
-                        if (n.includes('DP') || n.includes('DEP') || n.includes('SID') || n.includes('DEPARTURE')) type = 'SID';
-                        else if (n.includes('STAR') || n.includes('ARRIVAL')) type = 'STAR';
-                        else if (n.includes('ILS') || n.includes('RNAV') || n.includes('LOC') || n.includes('VOR') || n.includes('APPROACH')) type = 'APP';
-                        else if (n.includes('DIAGRAM') || n.includes('TAXI') || n.includes('HOT SPOT')) type = 'GND';
+                        if (nameMatch && linkMatch) {
+                            // Nettoyage parfait du nom (retrait des tags et de la balise **CHANGED**)
+                            let name = nameMatch[1].replace(/<[^>]+>/g, '').replace(/\*\*CHANGED\*\*/gi, '').trim();
+                            let url = linkMatch[1];
+                            
+                            // On force l'URL en HTTPS sécurisé absolu pour l'iPad
+                            if (url.startsWith('http:')) url = url.replace('http:', 'https:');
+                            if (!url.startsWith('http')) {
+                                if (url.startsWith('/')) url = 'https://www.airnav.com' + url;
+                                else url = 'https://www.airnav.com/departures/' + url;
+                            }
 
-                        foundCharts.push({
-                            id: `${icao}_${Math.random()}`,
-                            icao: icao,
-                            type: type,
-                            name: name,
-                            url: url,
-                            source: 'NATIVE' // On autorise l'iPad à l'ouvrir en interne !
-                        });
+                            // On évite les faux positifs
+                            if (name.length > 2 && !name.toLowerCase().includes('download')) {
+                                let type = 'GEN';
+                                const n = name.toUpperCase();
+                                
+                                if (n.includes('DP') || n.includes('DEP') || n.includes('SID') || n.includes('DEPARTURE')) type = 'SID';
+                                else if (n.includes('STAR') || n.includes('ARRIVAL')) type = 'STAR';
+                                else if (n.includes('ILS') || n.includes('RNAV') || n.includes('LOC') || n.includes('VOR') || n.includes('APPROACH')) type = 'APP';
+                                else if (n.includes('DIAGRAM') || n.includes('TAXI') || n.includes('HOT SPOT')) type = 'GND';
+
+                                foundCharts.push({
+                                    id: `${icao}_${Math.random()}`,
+                                    icao: icao,
+                                    type: type,
+                                    name: name,
+                                    url: url,
+                                    source: 'FAA_DIRECT' // On autorise l'ouverture directe dans l'EFB sans téléchargement
+                                });
+                            }
+                        }
                     }
                 }
                 
@@ -227,7 +246,7 @@ async function performSearch() {
                         source: 'CHARTFOX' 
                     });
                 });
-                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes indexées prêtes.`;
+                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes indexées.`;
             } else {
                 document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée.`;
                 hasError = true;
@@ -298,16 +317,12 @@ function createChartElement(chart, isDock = false) {
     span.className = 'chart-name';
     span.textContent = chart.name;
     
+    // ACTION AU CLIC : On envoie tout l'objet au lecteur
     span.onclick = () => { 
         currentActiveUrl = chart.url; 
         renderCategories(); 
         renderDock(); 
-        
-        if (chart.source === 'CHARTFOX') {
-            window.open(chart.url.startsWith('http') ? chart.url : `https://chartfox.org${chart.url}`, '_blank');
-        } else {
-            loadChart(chart.url); 
-        }
+        loadChart(chart); 
     };
 
     const actionsDiv = document.createElement('div');
@@ -350,10 +365,42 @@ function togglePin(chart) {
     renderDock();
 }
 
-// --- 8. Lecteur PDF (France & USA) ---
-async function loadChart(url) {
-    pdfViewer.style.display = 'none';
+// --- 8. Lecteur PDF Multimodal ---
+async function loadChart(chartObj) {
+    // Rétrocompatibilité si un vieux lien épinglé est cliqué
+    if (typeof chartObj === 'string') {
+        chartObj = { url: chartObj, source: 'NATIVE' };
+    }
     
+    const url = chartObj.url;
+    pdfViewer.style.display = 'none';
+    viewerPlaceholder.style.display = 'block';
+
+    // === CAS 1 : C'est une carte étrangère (Chartfox) ===
+    if (chartObj.source === 'CHARTFOX') {
+        const targetUrl = url.startsWith('http') ? url : `https://chartfox.org${url}`;
+        viewerPlaceholder.innerHTML = `
+            <div class="popup-box" style="text-align: center; max-width: 400px; padding: 30px;">
+                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold; font-size: 16px;">⚠️ Carte Internationale</p>
+                <p style="font-size: 13px; color: #aaa; margin-bottom: 25px;">Le site source interdit l'intégration de la carte au sein de l'EFB.</p>
+                <a href="${targetUrl}" target="_blank" style="display:inline-block; padding: 12px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; width: 100%; box-sizing: border-box;">
+                    Ouvrir la carte proprement ↗️
+                </a>
+            </div>
+        `;
+        return;
+    }
+
+    // === CAS 2 : ÉTATS-UNIS (Chargement public en direct) ===
+    // On met le lien FAA directement dans l'iframe, le navigateur de l'iPad l'affichera sans télécharger ni bloquer !
+    if (chartObj.source === 'FAA_DIRECT') {
+        viewerPlaceholder.style.display = 'none';
+        pdfViewer.src = url; 
+        pdfViewer.style.display = 'block';
+        return;
+    }
+
+    // === CAS 3 : FRANCE (SIA) - Chargement via le Proxy et le Cache ===
     if (pdfCache[url]) {
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
@@ -361,8 +408,7 @@ async function loadChart(url) {
         return;
     }
 
-    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau Natif Connecté</span>";
-    viewerPlaceholder.style.display = 'block';
+    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau SIA Connecté</span>";
 
     try {
         let response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(url)}`);
