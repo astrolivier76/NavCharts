@@ -170,32 +170,42 @@ async function loadChart(url) {
     }
 }
 
-// --- 9. Gérer l'ajout ou le retrait d'une épingle ---
-function togglePin(chart) {
+// --- 9. Gérer l'ajout ou le retrait d'une épingle (AVEC PRÉ-CHARGEMENT) ---
+async function togglePin(chart) {
     const index = pinnedCharts.findIndex(c => c.id === chart.id);
+    
     if (index > -1) {
+        // Retrait de l'épingle
         pinnedCharts.splice(index, 1);
     } else {
+        // Ajout de l'épingle
         pinnedCharts.push(chart);
+        
+        // --- LA MAGIE : Pré-téléchargement silencieux en arrière-plan ---
+        if (!pdfCache[chart.url]) {
+            console.log(`Pré-téléchargement silencieux de ${chart.name}...`);
+            try {
+                const proxyUrl = "https://api.allorigins.win/raw?url=";
+                // On lance le téléchargement sans bloquer l'interface
+                fetch(proxyUrl + encodeURIComponent(chart.url))
+                    .then(response => {
+                        if (response.ok) return response.blob();
+                        throw new Error("Erreur Proxy");
+                    })
+                    .then(blob => {
+                        // On le stocke dans la mémoire de l'iPad
+                        pdfCache[chart.url] = URL.createObjectURL(blob);
+                        console.log(`✅ ${chart.name} est en cache et s'ouvrira instantanément !`);
+                    })
+                    .catch(err => console.log("Le pré-chargement a échoué, il se fera au clic normal."));
+            } catch (error) {
+                // Erreur ignorée silencieusement pour ne pas perturber l'utilisateur
+            }
+        }
     }
+    
     renderPinned();
     if (currentCharts.length > 0) {
         renderCategories(); 
     }
 }
-
-// --- 10. Afficher les épingles ---
-function renderPinned() {
-    pinnedList.innerHTML = '';
-    if (pinnedCharts.length === 0) {
-        pinnedList.innerHTML = '<li style="padding: 10px; color: #888; font-size: 12px; text-align: center;">Aucune carte épinglée</li>';
-        return;
-    }
-    pinnedCharts.forEach(chart => {
-        const li = createChartElement(chart);
-        pinnedList.appendChild(li);
-    });
-}
-
-// --- Initialisation au démarrage ---
-renderPinned();
