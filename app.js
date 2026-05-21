@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE ---
+// --- 5. MOTEUR HYBRIDE INTELLIGENT ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -145,20 +145,20 @@ async function performSearch() {
                     else if (cType.includes('APP') || cType.includes('IAC') || cName.includes('APP') || cName.includes('ILS') || cName.includes('LOC') || cName.includes('VOR') || cName.includes('NDB') || cName.includes('IAC') || cName.includes('RNP')) type = 'APP';
                     else if (cType.includes('TAXI') || cType.includes('GND') || cName.includes('TAXI') || cName.includes('GND') || cName.includes('PRKG') || cName.includes('PARKING') || cName.includes('SOL') || cName.includes('GMC')) type = 'GND';
 
-                    const chartUrl = chart.view_url || chart.url || chart.file_url || "INCONNU";
-                    
-                    if (chartUrl !== "INCONNU") {
+                    // LA CLÉ DE VOÛTE : On fabrique l'URL de l'API secrète grâce à l'ID !
+                    if (chart.id) {
+                        const apiSecretUrl = `https://api.chartfox.org/v2/charts/${chart.id}`;
+                        
                         foundCharts.push({
-                            id: chart.chartId || chart.id || `${icao}_${Math.random()}`,
+                            id: chart.id,
                             icao: icao,
                             type: type,
                             name: chart.name || 'CARTE IFR',
-                            url: chartUrl,
-                            raw: chart // <-- LA SAUVEGARDE DE L'ADN SECRET
+                            url: apiSecretUrl
                         });
                     }
                 });
-                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes extraites.`;
+                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes extraites via API.`;
             } else {
                 document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée.`;
                 hasError = true;
@@ -220,18 +220,18 @@ function renderDock() {
     }
 }
 
-function createChartElement(chartItem, isDock = false) {
+function createChartElement(chart, isDock = false) {
     const div = document.createElement('div');
-    div.className = `chart-item ${currentActiveUrl === chartItem.url ? 'active' : ''}`;
-    div.setAttribute('data-type', chartItem.type);
+    div.className = `chart-item ${currentActiveUrl === chart.url ? 'active' : ''}`;
+    div.setAttribute('data-type', chart.type);
 
     const span = document.createElement('span');
     span.className = 'chart-name';
-    span.textContent = chartItem.name;
+    span.textContent = chart.name;
     span.onclick = () => { 
-        currentActiveUrl = chartItem.url; 
+        currentActiveUrl = chart.url; 
         renderCategories(); renderDock(); 
-        loadChart(chartItem); // ON ENVOIE L'OBJET COMPLET POUR LE SCANNER
+        loadChart(chart.url); 
     };
 
     const actionsDiv = document.createElement('div');
@@ -243,8 +243,7 @@ function createChartElement(chartItem, isDock = false) {
     externalBtn.title = "Lien direct (Plein écran externe)";
     externalBtn.onclick = (e) => { 
         e.stopPropagation(); 
-        const targetUrl = chartItem.url.startsWith('http') ? chartItem.url : `https://chartfox.org${chartItem.url}`;
-        window.open(targetUrl, '_blank'); 
+        window.open(chart.url, '_blank'); 
     };
 
     const pinBtn = document.createElement('button');
@@ -253,7 +252,7 @@ function createChartElement(chartItem, isDock = false) {
     pinBtn.title = isDock ? "Retirer du dock" : "Épingler dans le dock";
     pinBtn.onclick = (e) => { 
         e.stopPropagation(); 
-        togglePin(chartItem); 
+        togglePin(chart); 
     };
 
     actionsDiv.appendChild(externalBtn);
@@ -264,46 +263,21 @@ function createChartElement(chartItem, isDock = false) {
     return div;
 }
 
-function togglePin(chartItem) {
-    const index = pinnedCharts.findIndex(c => c.url === chartItem.url);
+function togglePin(chart) {
+    const index = pinnedCharts.findIndex(c => c.url === chart.url);
     if (index > -1) {
         pinnedCharts.splice(index, 1);
     } else {
-        pinnedCharts.push(chartItem);
+        pinnedCharts.push(chart);
     }
     localStorage.setItem('savedDock', JSON.stringify(pinnedCharts));
     renderDock();
 }
 
-// --- 8. LECTEUR PDF ET DIAGNOSTIC RAYON X ---
-async function loadChart(chartItem) {
-    const url = chartItem.url;
+// --- 8. Lecteur PDF Nettoyé ---
+async function loadChart(url) {
     pdfViewer.style.display = 'none';
-
-    // === MODE RAYON X (Seulement pour les cartes Internationales / Chartfox) ===
-    if (chartItem.raw) {
-        viewerPlaceholder.innerHTML = `
-            <div class="popup-box" style="max-width: 600px; text-align: left; max-height: 80vh; overflow-y: auto;">
-                <button id="close-popup" class="close-btn">&times;</button>
-                <p style="color: #00ff00; font-family: monospace; font-weight: bold; font-size: 16px; margin-bottom: 5px;">
-                    🚨 DIAGNOSTIC RAYON X 🚨
-                </p>
-                <p style="font-size: 13px; color: #ccc; margin-bottom: 15px;">
-                    Voici les données brutes envoyées par Chartfox. <strong>Prenez une capture d'écran de ce texte vert</strong> et envoyez-la moi :
-                </p>
-                <pre style="background: #000; padding: 15px; border-radius: 4px; color: #00ff00; font-size: 12px; white-space: pre-wrap; word-wrap: break-word; border: 1px solid #444;">${JSON.stringify(chartItem.raw, null, 2)}</pre>
-                <br>
-                <button onclick="window.open('${url.startsWith('http') ? url : 'https://chartfox.org' + url}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;">
-                    Ouvrir la carte via Chartfox ↗️
-                </button>
-            </div>
-        `;
-        document.getElementById('close-popup').onclick = () => viewerPlaceholder.style.display = 'none';
-        viewerPlaceholder.style.display = 'block';
-        return;
-    }
-
-    // === MODE LECTURE NORMALE (Pour la France / SIA) ===
+    
     if (pdfCache[url]) {
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
@@ -311,17 +285,18 @@ async function loadChart(chartItem) {
         return;
     }
 
-    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau SIA Connecté</span>";
+    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau Connecté</span>";
     viewerPlaceholder.style.display = 'block';
 
     try {
         let response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(url)}`);
-        if (!response.ok) throw new Error("Erreur Serveur Cloudflare");
+        
+        if (!response.ok) throw new Error("Erreur Serveur Cloudflare / API Chartfox");
         
         let blob = await response.blob();
         
         if (blob.type.includes("text/html") || blob.type.includes("application/json")) {
-            throw new Error("Données inattendues (HTML/JSON au lieu de PDF).");
+            throw new Error("L'API a refusé l'accès direct au PDF (Sécurité régionale).");
         }
         
         const pdfBlob = new Blob([blob], { type: 'application/pdf' });
@@ -334,7 +309,7 @@ async function loadChart(chartItem) {
         viewerPlaceholder.innerHTML = `
             <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
-                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Erreur de téléchargement SIA.</p>
+                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Le PDF source est protégé.</p>
                 <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">Détail : ${e.message}</p>
                 <button onclick="window.open('${url}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
                     Ouvrir la carte en direct ↗️
