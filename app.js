@@ -5,7 +5,7 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre proxy Cloudflare (Sert à télécharger les PDF)
+// L'URL de votre proxy Cloudflare
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories
@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE INTÉGRAL (FRANCE + USA + RESTE DU MONDE) ---
+// --- 5. MOTEUR HYBRIDE INTÉGRAL (AVEC FILET DE SÉCURITÉ) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -62,6 +62,7 @@ async function performSearch() {
     
     let foundCharts = [];
     let hasError = false;
+    let forceChartfoxFallback = false;
 
     try {
         // ==========================================
@@ -120,26 +121,29 @@ async function performSearch() {
         // ==========================================
         else if (icao.startsWith('K')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Moteur FAA engagé.`;
-            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion à la FAA via relais CodeTabs...`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion à la base de données...`;
             
             const faaUrl = `https://api.aviationapi.com/v1/charts?apt=${icao}`;
-            
-            // LA CORRECTION : On utilise un relais externe indépendant pour ne pas déclencher le pare-feu 530 de Cloudflare
-            let response;
+            let faaData = null;
+
+            // STRATÉGIE BLINDÉE : On tente la connexion, si ça échoue, on ne plante pas, on passe au Plan B.
             try {
-                response = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(faaUrl)}`);
-                if (!response.ok) throw new Error();
-            } catch (e) {
-                // Relais de secours au cas où le premier serait bloqué
-                response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(faaUrl)}`);
+                let res = await fetch(faaUrl);
+                if (res.ok) faaData = await res.json();
+                else throw new Error("Direct Failed");
+            } catch (e1) {
+                try {
+                    // Dernier recours propre sans casser l'URL
+                    let res2 = await fetch(`https://corsproxy.io/?${faaUrl}`);
+                    if (res2.ok) faaData = await res2.json();
+                    else throw new Error("Proxy Failed");
+                } catch (e2) {
+                    faaData = null;
+                }
             }
             
-            if (!response || !response.ok) throw new Error("Impossible de lire l'annuaire de la FAA.");
-            
-            const data = await response.json();
-            
-            if (data[icao] && data[icao].length > 0) {
-                data[icao].forEach(chart => {
+            if (faaData && faaData[icao] && faaData[icao].length > 0) {
+                faaData[icao].forEach(chart => {
                     let type = 'GEN';
                     const code = chart.chart_code ? chart.chart_code.toUpperCase() : '';
                     const cName = chart.chart_name ? chart.chart_name.toUpperCase() : '';
@@ -155,21 +159,28 @@ async function performSearch() {
                         type: type,
                         name: chart.chart_name,
                         url: chart.pdf_path,
-                        source: 'NATIVE' // Indique à l'application qu'elle peut utiliser notre proxy Cloudflare pour le PDF
+                        source: 'NATIVE'
                     });
                 });
-                document.getElementById('diag-2').innerHTML = `✅ 2. Base de données FAA synchronisée.`;
-                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes américaines prêtes.`;
+                document.getElementById('diag-2').innerHTML = `✅ 2. Base FAA lue avec succès.`;
+                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes natives prêtes.`;
             } else {
-                document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée pour cet aéroport.`;
-                hasError = true;
+                // LE FAMEUX FILET DE SÉCURITÉ
+                document.getElementById('diag-2').innerHTML = `⚠️ 2. Blocage serveur FAA. Bascule sur l'index mondial...`;
+                forceChartfoxFallback = true;
             }
         }
+        else {
+            forceChartfoxFallback = true;
+        }
+
         // ==========================================
         // MOTEUR 3 : RESTE DU MONDE (CHARTFOX)
         // ==========================================
-        else {
-            document.getElementById('diag-1').innerHTML = `✅ 1. Zone Inter. Indexation Chartfox engagée.`;
+        if (forceChartfoxFallback) {
+            if (!icao.startsWith('K')) {
+                document.getElementById('diag-1').innerHTML = `✅ 1. Zone Inter. Indexation Chartfox engagée.`;
+            }
             const proxyUrl = `${MY_PROXY}?icao=${icao}`;
 
             const response = await fetch(proxyUrl);
@@ -213,7 +224,7 @@ async function performSearch() {
                         source: 'CHARTFOX' 
                     });
                 });
-                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes indexées.`;
+                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes indexées prêtes.`;
             } else {
                 document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée.`;
                 hasError = true;
