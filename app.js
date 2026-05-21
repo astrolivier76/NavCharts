@@ -112,31 +112,33 @@ function createChartElement(chart) {
     return li;
 }
 
-// --- 8. Charger et afficher le PDF (Méthode de téléchargement invisible) ---
+// --- 8. Charger et afficher le PDF (Méthode Blob avec Proxy Alternatif) ---
 async function loadChart(url) {
     pdfViewer.style.display = 'none';
     viewerPlaceholder.textContent = "Chargement de la carte en cours...";
     viewerPlaceholder.style.display = 'block';
 
     try {
-        const proxyUrl = "https://corsproxy.io/?";
-        // On télécharge le PDF en arrière-plan via le proxy
+        // Nouveau proxy plus stable pour les fichiers binaires (PDF)
+        const proxyUrl = "https://api.allorigins.win/raw?url=";
+        
+        // On télécharge le PDF via le nouveau proxy
         const response = await fetch(proxyUrl + encodeURIComponent(url));
         
         if (!response.ok) throw new Error("Erreur réseau");
         
-        // On crée un fichier local temporaire
+        // Transformation en fichier binaire local
         const blob = await response.blob();
         const localUrl = URL.createObjectURL(blob);
         
-        // On l'affiche (les sécurités du navigateur sautent car c'est devenu un fichier local)
+        // Affichage dans l'iframe
         viewerPlaceholder.style.display = 'none';
         pdfViewer.src = localUrl + "#view=FitH";
         pdfViewer.style.display = 'block';
         
     } catch (error) {
         console.error("Erreur de chargement:", error);
-        viewerPlaceholder.textContent = "Impossible de charger la carte (Vérifiez le code OACI).";
+        viewerPlaceholder.textContent = "Impossible de charger la carte. Si le problème persiste, désactivez votre bloqueur de pub.";
     }
 }
 
