@@ -117,7 +117,7 @@ async function performSearch() {
             }
         } 
         // ==========================================
-        // MOTEUR 2 : ÉTATS-UNIS (Le Scanner DOM)
+        // MOTEUR 2 : ÉTATS-UNIS (Le Scanner Intelligent)
         // ==========================================
         else if (icao.startsWith('K')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Scanner DOM engagé.`;
@@ -132,11 +132,10 @@ async function performSearch() {
                 
                 const htmlText = await response.text();
                 
-                // LE VÉRITABLE CORRECTIF : On utilise l'intelligence du navigateur pour comprendre la page
+                // On utilise le navigateur pour comprendre l'architecture du site
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(htmlText, 'text/html');
                 
-                // On attrape tous les liens se terminant par .pdf ou .PDF
                 const links = Array.from(doc.querySelectorAll('a'));
                 
                 links.forEach(link => {
@@ -145,63 +144,68 @@ async function performSearch() {
                     
                     let linkText = link.textContent.trim();
                     let tr = link.closest('tr');
-                    let name = "";
+                    let name = "CARTE IFR";
                     
-                    // Extraction chirurgicale du nom
+                    // On isole la colonne 1 (le vrai nom)
                     if (tr) {
                         let tds = tr.querySelectorAll('td');
-                        if (tds.length >= 2) name = tds[0].textContent;
-                        else name = tr.textContent;
+                        if (tds.length >= 2) name = tds[0].textContent; 
+                        else name = link.parentElement.textContent.replace(linkText, '');
                     } else {
-                        name = link.parentElement.textContent;
+                        name = link.parentElement.textContent.replace(linkText, '');
                     }
                     
-                    // Nettoyage parfait (Enlève les "download", la taille du fichier, les balises de mise à jour...)
-                    name = name.replace(linkText, '')
-                               .replace(/download/i, '')
+                    // Nettoyage des parasites
+                    name = name.replace(/download/i, '')
                                .replace(/pages?:?/i, '')
                                .replace(/\*\*CHANGED\*\*/gi, '')
-                               .replace(/\(\d+KB\)/i, '')
+                               .replace(/\(\d+\s*KB\)/i, '')
                                .replace(/\[\d+\]/g, '')
                                .replace(/[\n\r\t]/g, ' ')
                                .replace(/\s+/g, ' ')
                                .trim();
                     
-                    // Gestion des cartes en plusieurs pages (Airnav affiche "1", "2" à la place de "download")
-                    let pageNumMatch = linkText.match(/\d+/);
-                    if (pageNumMatch && linkText.length <= 4) {
+                    // Si le lien s'appelle juste "1" ou "2", on l'ajoute au nom (Ex: KENNEDY FIVE (Page 1))
+                    let pageNumMatch = linkText.match(/^\d+$/); 
+                    if (pageNumMatch) {
                         name = `${name} (Page ${pageNumMatch[0]})`;
                     }
                     
                     if (name.length < 2) name = "CARTE IFR";
 
-                    // Déduction Intelligente du Type (SID, STAR, etc.)
                     let type = 'GEN';
                     let n = name.toUpperCase();
                     
+                    // LE CORRECTIF DU CLASSEMENT : On lit les titres de l'organisation FAA en premier
                     if (n.includes('DIAGRAM') || n.includes('TAXI') || n.includes('HOT SPOT')) {
                         type = 'GND';
-                    } else if (n.includes('ILS') || n.includes('RNAV') || n.includes('LOC') || n.includes('VOR') || n.includes('APPROACH') || n.includes('NDB') || n.includes('GPS') || n.includes('COPTER')) {
-                        type = 'APP';
                     } else {
-                        // Si le nom ne donne aucun indice, on remonte les lignes pour trouver le titre du tableau !
+                        let foundSection = false;
                         let prev = tr ? tr.previousElementSibling : null;
+                        
+                        // L'algorithme remonte les lignes pour trouver le titre du tableau
                         while(prev) {
                             let txt = prev.textContent.toUpperCase();
-                            if (txt.includes('STARS -') || txt.includes('TERMINAL ARRIVALS')) { type = 'STAR'; break; }
-                            if (txt.includes('DEPARTURE PROCEDURES') || txt.includes('SIDS -')) { type = 'SID'; break; }
-                            if (txt.includes('IAPS -') || txt.includes('APPROACH PROCEDURES')) { type = 'APP'; break; }
+                            if (txt.includes('TERMINAL ARRIVAL') || txt.includes('STARS')) { type = 'STAR'; foundSection = true; break; }
+                            if (txt.includes('DEPARTURE PROCEDURE') || txt.includes('SIDS')) { type = 'SID'; foundSection = true; break; }
+                            if (txt.includes('INSTRUMENT APPROACH') || txt.includes('IAPS')) { type = 'APP'; foundSection = true; break; }
                             prev = prev.previousElementSibling;
+                        }
+                        
+                        // En dernier recours si la carte se balade toute seule (ce qui n'arrive presque jamais)
+                        if (!foundSection) {
+                            if (n.includes('DP') || n.includes('DEP ') || n.includes('SID ') || n.includes('DEPARTURE')) type = 'SID';
+                            else if (n.includes('STAR ') || n.includes('ARRIVAL')) type = 'STAR';
+                            else if (n.includes('ILS') || n.includes('RNAV') || n.includes('LOC') || n.includes('VOR') || n.includes('APPROACH') || n.includes('NDB') || n.includes('GPS')) type = 'APP';
                         }
                     }
 
-                    // On assemble l'URL sécurisée
                     if (url.startsWith('http:')) url = url.replace('http:', 'https:');
                     if (!url.startsWith('http')) {
                         url = 'https://www.airnav.com' + (url.startsWith('/') ? '' : '/departures/') + url;
                     }
 
-                    // On évite les doublons
+                    // Anti-doublons
                     if (!foundCharts.find(c => c.url === url)) {
                         foundCharts.push({
                             id: `${icao}_${Math.random()}`,
@@ -209,7 +213,7 @@ async function performSearch() {
                             type: type,
                             name: name,
                             url: url,
-                            source: 'NATIVE' // On autorise le lecteur de l'EFB !
+                            source: 'NATIVE'
                         });
                     }
                 });
@@ -408,7 +412,6 @@ async function loadChart(chartObj) {
     pdfViewer.style.display = 'none';
     viewerPlaceholder.style.display = 'block';
 
-    // === CAS 1 : C'est une carte étrangère (Chartfox) ===
     if (chartObj.source === 'CHARTFOX') {
         const targetUrl = url.startsWith('http') ? url : `https://chartfox.org${url}`;
         viewerPlaceholder.innerHTML = `
@@ -423,7 +426,6 @@ async function loadChart(chartObj) {
         return;
     }
 
-    // === CAS 2 : FRANCE & ÉTATS-UNIS (NATIVE) ===
     if (pdfCache[url]) {
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
