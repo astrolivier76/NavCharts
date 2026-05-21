@@ -5,7 +5,7 @@ const pdfCache = {};
 let currentFilter = 'ALL'; 
 let currentActiveUrl = '';
 
-// L'URL de votre proxy (Sert uniquement pour la France désormais)
+// L'URL de votre proxy Cloudflare (Sert à débloquer les PDF)
 const MY_PROXY = "https://chartfox-api.alonso-o76.workers.dev/";
 
 // Définition des catégories
@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. MOTEUR HYBRIDE ---
+// --- 5. MOTEUR HYBRIDE INTÉGRAL (FRANCE + USA + RESTE DU MONDE) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -54,7 +54,7 @@ async function performSearch() {
     categoriesContainer.innerHTML = `
         <div style='padding: 15px; color: #00ff00; font-size: 12px; font-family: monospace; background: #111; border: 1px solid #333; margin: 10px; border-radius: 4px; box-shadow: inset 0 0 10px #000;'>
             <strong style='color: #007bff;'>[SYSTEM UPLINK - ${icao}]</strong><br><br>
-            <span id="diag-1">⏳ 1. Analyse de la zone...</span><br>
+            <span id="diag-1">⏳ 1. Analyse de la zone géographique...</span><br>
             <span id="diag-2"></span><br>
             <span id="diag-3"></span>
         </div>
@@ -64,14 +64,16 @@ async function performSearch() {
     let hasError = false;
 
     try {
-        // === MOTEUR FRANCE (PDF DIRECTS) ===
+        // ==========================================
+        // MOTEUR 1 : FRANCE (SIA) - Lecture 100% Native
+        // ==========================================
         if (icao.startsWith('LF')) {
             document.getElementById('diag-1').innerHTML = `✅ 1. Zone France. Moteur SIA engagé.`;
-            document.getElementById('diag-2').innerHTML = `⏳ 2. Obtention des cartes officielles...`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Extraction des PDF officiels...`;
             
             const dates = getAiracDates();
             const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
-            foundCharts.push({ id: `${icao}_VAC`, icao: icao, type: 'GEN', name: `VAC VFR`, url: siaVacUrl, source: 'SIA' });
+            foundCharts.push({ id: `${icao}_VAC`, icao: icao, type: 'GEN', name: `VAC VFR`, url: siaVacUrl, source: 'NATIVE' });
 
             const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
             const proxyUrl = `${MY_PROXY}?url=${encodeURIComponent(eAipUrl)}`;
@@ -99,12 +101,12 @@ async function performSearch() {
                             else if (n.includes('SOL') || n.includes('PRKG') || n.includes('PARKING') || n.includes('TAXI') || n.includes('GMC')) type = 'GND';
                             
                             if (!foundCharts.find(c => c.url === absoluteUrl)) {
-                                foundCharts.push({ id: `${icao}_IFR_${idCounter++}`, icao: icao, type: type, name: chartName, url: absoluteUrl, source: 'SIA' });
+                                foundCharts.push({ id: `${icao}_IFR_${idCounter++}`, icao: icao, type: type, name: chartName, url: absoluteUrl, source: 'NATIVE' });
                             }
                         }
                     }
                     document.getElementById('diag-2').innerHTML = `✅ 2. Scraping SIA réussi.`;
-                    document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes chargées.`;
+                    document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes natives prêtes.`;
                 } else {
                     document.getElementById('diag-2').innerHTML = `⚠️ 2. Aérodrome VFR uniquement.`;
                 }
@@ -113,9 +115,52 @@ async function performSearch() {
                 hasError = true;
             }
         } 
-        // === MOTEUR MONDIAL (INDEXATION CHARTFOX UNIQUEMENT) ===
+        // ==========================================
+        // MOTEUR 2 : ÉTATS-UNIS (FAA) - Lecture 100% Native
+        // ==========================================
+        else if (icao.startsWith('K')) {
+            document.getElementById('diag-1').innerHTML = `✅ 1. Zone USA détectée. Moteur FAA engagé.`;
+            document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion à AviationAPI...`;
+            
+            const faaUrl = `https://api.aviationapi.com/v1/charts?apt=${icao}`;
+            
+            const response = await fetch(faaUrl);
+            if (!response.ok) throw new Error("Le serveur de la FAA ne répond pas.");
+            
+            const data = await response.json();
+            
+            if (data[icao] && data[icao].length > 0) {
+                data[icao].forEach(chart => {
+                    let type = 'GEN';
+                    const code = chart.chart_code ? chart.chart_code.toUpperCase() : '';
+                    const cName = chart.chart_name ? chart.chart_name.toUpperCase() : '';
+
+                    if (code === 'DP' || cName.includes('DEP') || cName.includes('SID')) type = 'SID';
+                    else if (code === 'STAR' || cName.includes('ARR')) type = 'STAR';
+                    else if (code === 'IAP' || cName.includes('ILS') || cName.includes('RNAV') || cName.includes('LOC') || cName.includes('VOR')) type = 'APP';
+                    else if (cName.includes('TAXI') || cName.includes('DIAGRAM') || cName.includes('APD')) type = 'GND';
+
+                    foundCharts.push({
+                        id: `${icao}_${chart.pdf_name}`,
+                        icao: icao,
+                        type: type,
+                        name: chart.chart_name,
+                        url: chart.pdf_path,
+                        source: 'NATIVE' // On indique à l'iPad qu'il peut lire ça en interne !
+                    });
+                });
+                document.getElementById('diag-2').innerHTML = `✅ 2. API FAA lue avec succès.`;
+                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes natives prêtes.`;
+            } else {
+                document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée à la FAA.`;
+                hasError = true;
+            }
+        }
+        // ==========================================
+        // MOTEUR 3 : RESTE DU MONDE (CHARTFOX) - Liens Externes
+        // ==========================================
         else {
-            document.getElementById('diag-1').innerHTML = `✅ 1. Zone Inter. Indexation Mondiale engagée.`;
+            document.getElementById('diag-1').innerHTML = `✅ 1. Zone Inter. Indexation Chartfox engagée.`;
             const proxyUrl = `${MY_PROXY}?icao=${icao}`;
 
             const response = await fetch(proxyUrl);
@@ -148,7 +193,6 @@ async function performSearch() {
                     else if (cType.includes('APP') || cType.includes('IAC') || cName.includes('APP') || cName.includes('ILS') || cName.includes('LOC') || cName.includes('VOR') || cName.includes('NDB') || cName.includes('IAC') || cName.includes('RNP')) type = 'APP';
                     else if (cType.includes('TAXI') || cType.includes('GND') || cName.includes('TAXI') || cName.includes('GND') || cName.includes('PRKG') || cName.includes('PARKING') || cName.includes('SOL') || cName.includes('GMC')) type = 'GND';
 
-                    // On utilise le lien de visualisation officiel de Chartfox
                     const chartUrl = chart.view_url || `https://chartfox.org/${icao}`;
                     
                     foundCharts.push({
@@ -157,10 +201,10 @@ async function performSearch() {
                         type: type,
                         name: chart.name || 'CARTE IFR',
                         url: chartUrl,
-                        source: 'CHARTFOX' // Marqueur de traitement externe
+                        source: 'CHARTFOX' // Marqueur pour dire à l'iPad de ne pas l'intégrer
                     });
                 });
-                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes indexées prêtes.`;
+                document.getElementById('diag-3').innerHTML = `🏁 3. ${foundCharts.length} cartes indexées.`;
             } else {
                 document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée.`;
                 hasError = true;
@@ -231,25 +275,17 @@ function createChartElement(chart, isDock = false) {
     span.className = 'chart-name';
     span.textContent = chart.name;
     
-    // ACTION AU CLIC : Hybride selon la source !
+    // ACTION AU CLIC : On lance notre lecteur
     span.onclick = () => { 
         currentActiveUrl = chart.url; 
         renderCategories(); 
         renderDock(); 
-        
-        if (chart.source === 'CHARTFOX') {
-            // Chartfox ne permet pas l'intégration iframe/PDF direct. On l'ouvre proprement à côté.
-            window.open(chart.url.startsWith('http') ? chart.url : `https://chartfox.org${chart.url}`, '_blank');
-        } else {
-            // SIA (France) permet la lecture PDF native fluide
-            loadChart(chart.url); 
-        }
+        loadChart(chart); 
     };
 
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'actions-container';
 
-    // Le bouton d'ouverture externe reste toujours utile
     const externalBtn = document.createElement('button');
     externalBtn.className = 'external-btn';
     externalBtn.innerHTML = '↗️';
@@ -287,10 +323,29 @@ function togglePin(chart) {
     renderDock();
 }
 
-// --- 8. Lecteur PDF (Réservé à la France / SIA) ---
-async function loadChart(url) {
+// --- 8. Lecteur PDF (Adapté pour iPad) ---
+async function loadChart(chartObj) {
+    const url = chartObj.url;
     pdfViewer.style.display = 'none';
     
+    // === CAS 1 : C'est une carte étrangère (Chartfox) ===
+    // On affiche un bouton d'ouverture propre pour éviter que l'iPad ne bloque le pop-up
+    if (chartObj.source === 'CHARTFOX') {
+        const targetUrl = url.startsWith('http') ? url : `https://chartfox.org${url}`;
+        viewerPlaceholder.innerHTML = `
+            <div class="popup-box" style="text-align: center; max-width: 400px; padding: 30px;">
+                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold; font-size: 16px;">⚠️ Carte Internationale</p>
+                <p style="font-size: 13px; color: #aaa; margin-bottom: 25px;">Le site Chartfox interdit l'intégration de cette carte au sein de l'EFB.</p>
+                <a href="${targetUrl}" target="_blank" style="display:inline-block; padding: 12px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; width: 100%; box-sizing: border-box;">
+                    Ouvrir sur Safari ↗️
+                </a>
+            </div>
+        `;
+        viewerPlaceholder.style.display = 'block';
+        return;
+    }
+
+    // === CAS 2 : C'est une carte NATIVE (France ou USA) ===
     if (pdfCache[url]) {
         pdfViewer.src = pdfCache[url] + "#view=FitH";
         pdfViewer.style.display = 'block';
@@ -298,12 +353,13 @@ async function loadChart(url) {
         return;
     }
 
-    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau SIA Connecté</span>";
+    viewerPlaceholder.innerHTML = "Téléchargement de la carte officielle...<br><span style='font-size: 11px; color:#00ff00;'>⚡ Réseau Natif Connecté</span>";
     viewerPlaceholder.style.display = 'block';
 
     try {
+        // On passe toujours par Cloudflare pour éviter les soucis de sécurité "Mixed Content" de l'iPad
         let response = await fetch(`${MY_PROXY}?url=${encodeURIComponent(url)}`);
-        if (!response.ok) throw new Error("Erreur Serveur Cloudflare");
+        if (!response.ok) throw new Error("Le PDF est inaccessible.");
         
         let blob = await response.blob();
         
@@ -318,9 +374,10 @@ async function loadChart(url) {
         viewerPlaceholder.innerHTML = `
             <div class="popup-box">
                 <button id="close-popup" class="close-btn">&times;</button>
-                <p style="color: #f1c40f; margin-bottom: 15px; font-weight: bold;">⚠️ Le PDF est inaccessible.</p>
+                <p style="color: #e74c3c; margin-bottom: 15px; font-weight: bold;">❌ Échec du téléchargement.</p>
+                <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">Détail : ${e.message}</p>
                 <button onclick="window.open('${url}', '_blank')" style="padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">
-                    Ouvrir manuellement ↗️
+                    Tenter l'ouverture manuelle ↗️
                 </button>
             </div>
         `;
