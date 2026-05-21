@@ -45,7 +45,7 @@ function getAiracDates() {
     return { folderDate: `${day}_${monthNames[currentAirac.getUTCMonth()]}_${year}`, isoDate: `${year}-${month}-${day}` };
 }
 
-// --- 5. Moteur Mondial (Mode Diagnostic Extrême) ---
+// --- 5. Moteur Mondial (Version Finale) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
@@ -79,7 +79,7 @@ async function performSearch() {
         const textData = await response.text(); 
         
         if (textData.includes("<html") || textData.includes("login") || textData.includes("Auth")) {
-             document.getElementById('diag-1').innerHTML = `❌ 1. BLOCAGE : Session VATSIM expirée.`;
+             document.getElementById('diag-1').innerHTML = `❌ 1. BLOCAGE : Session VATSIM expirée. (Veuillez renouveler le cookie dans Cloudflare).`;
              throw new Error("Session Expired");
         }
 
@@ -95,9 +95,7 @@ async function performSearch() {
         }
 
         if (chartsData.length > 0) {
-            // L'ADN DE LA CARTE : On affiche la structure exacte de la première carte trouvée
-            const chartKeys = Object.keys(chartsData[0]).join(', ');
-            document.getElementById('diag-2').innerHTML = `✅ 2. ${chartsData.length} cartes. <br><span style="color:#f1c40f">Clés : [${chartKeys}]</span>`;
+            document.getElementById('diag-2').innerHTML = `✅ 2. ${chartsData.length} cartes extraites.`;
             
             chartsData.forEach(chart => {
                 let type = 'GEN';
@@ -112,21 +110,21 @@ async function performSearch() {
 
                 const isDuplicateVAC = type === 'GEN' && cName.includes('VAC') && icao.startsWith('LF');
                 
-                // LE TEST FORCÉ : On prend toutes les possibilités, ou on met "INCONNU"
-                const chartUrl = chart.url || chart.link || chart.file_url || chart.pdf_path || chart.href || chart.file || "INCONNU";
+                // LE VOILÀ ! On utilise la fameuse clé 'view_url'
+                const chartUrl = chart.view_url || chart.url || chart.file_url || "INCONNU";
                 
-                if (!isDuplicateVAC) {
+                if (!isDuplicateVAC && chartUrl !== "INCONNU") {
                     foundCharts.push({
                         id: chart.chartId || chart.id || `${icao}_${Math.random()}`,
                         icao: icao,
                         type: type,
-                        name: chart.name || 'CARTE SANS NOM',
+                        name: chart.name || 'CARTE IFR',
                         url: chartUrl
                     });
                 }
             });
             
-            document.getElementById('diag-3').innerHTML = `🏁 3. Création forcée de l'interface...`;
+            document.getElementById('diag-3').innerHTML = `🏁 3. Création de l'interface...`;
         } else {
             document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune carte trouvée dans la base de données pour cet aéroport.`;
         }
@@ -139,13 +137,13 @@ async function performSearch() {
 
     const hasError = document.getElementById('diag-1').innerHTML.includes('❌') || document.getElementById('diag-2').innerHTML.includes('⚠️');
     
-    // On bloque 10 secondes pour que vous puissiez me copier les "Clés" jaunes du diagnostic !
+    // Le délai est redescendu à 0.3s (ultra-rapide) si tout va bien !
     setTimeout(() => {
         currentCharts = foundCharts;
         currentFilter = 'ALL'; 
         renderTabs();
         renderCategories();
-    }, 10000); 
+    }, hasError ? 5000 : 300); 
 }
 
 // --- 6. Rendu Graphique (Onglets, Listes, Dock) ---
