@@ -43,18 +43,18 @@ function getAiracDates() {
     };
 }
 
-// --- 5. La fonction de recherche (Scraping SIA avec Proxy Anti-CORS) ---
+// --- 5. La fonction de recherche (Scraping SIA avec Diagnostic Rapide) ---
 async function performSearch() {
     const icao = searchInput.value.trim().toUpperCase();
     if (icao === '') return;
 
     airportTitle.textContent = "Aéroport : " + icao;
     
-    // Le panneau de diagnostic en direct
+    // Le panneau de diagnostic au look "Terminal"
     categoriesContainer.innerHTML = `
-        <div style='padding: 15px; color: #ccc; font-size: 13px; font-family: monospace; background: #222; border: 1px solid #444; margin: 10px; border-radius: 5px;'>
-            <strong style='color: #007bff;'>[DIAGNOSTIC EN COURS]</strong><br>
-            <span id="diag-1">⏳ 1. Génération de la carte VAC...</span><br>
+        <div style='padding: 15px; color: #00ff00; font-size: 12px; font-family: monospace; background: #111; border: 1px solid #333; margin: 10px; border-radius: 4px; box-shadow: inset 0 0 10px #000;'>
+            <strong style='color: #007bff;'>[SYSTEM BOOT - RECHERCHE ${icao}]</strong><br><br>
+            <span id="diag-1">⏳ 1. Génération lien VAC...</span><br>
             <span id="diag-2"></span><br>
             <span id="diag-3"></span><br>
             <span id="diag-4"></span>
@@ -67,29 +67,24 @@ async function performSearch() {
     // 1. La VAC
     const siaVacUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/Atlas-VAC/PDF_AIPparSSection/VAC/AD/AD-2.${icao}.pdf`;
     foundCharts.push({ id: icao + '_VAC', type: 'INFO', name: `Carte VAC VFR`, url: siaVacUrl });
-    document.getElementById('diag-1').innerHTML = "✅ 1. Carte VAC prête.";
+    document.getElementById('diag-1').innerHTML = "✅ 1. Lien VAC VFR généré.";
 
-    // 2. Le Scraping IFR
-    document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion au SIA pour ${icao}...`;
+    // 2. Le Scraping IFR via la porte blindée JSON
+    document.getElementById('diag-2').innerHTML = `⏳ 2. Connexion sécurisée au SIA...`;
     const eAipUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_${dates.folderDate}/FRANCE/AIRAC-${dates.isoDate}/html/eAIP/FR-AD-2.${icao}-fr-FR.html`;
-    
-    // L'ASTUCE ANTI-CORS : On utilise /get au lieu de /raw et on désactive le cache
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(eAipUrl)}&disableCache=true`;
 
     try {
         const response = await fetch(proxyUrl);
         
         if (response.ok) {
-            const data = await response.json(); // On déballe le paquet sécurisé
+            const data = await response.json(); 
             
-            // Si la page contient une erreur 404 du SIA
-            if (data.contents && data.contents.includes("404 Not Found")) {
-                document.getElementById('diag-2').innerHTML = `❌ 2. La page IFR n'existe pas (Erreur 404 SIA).`;
-            } else if (data.contents) {
+            if (data.contents && !data.contents.includes("404 Not Found")) {
                 const htmlText = data.contents;
-                document.getElementById('diag-2').innerHTML = `✅ 2. Page lue (${htmlText.length} caractères).`;
-                document.getElementById('diag-3').innerHTML = "⏳ 3. Analyse des liens...";
-                
+                document.getElementById('diag-2').innerHTML = `✅ 2. Code source reçu (${htmlText.length} octets).`;
+                document.getElementById('diag-3').innerHTML = "⏳ 3. Extraction des PDF...";
+
                 const regex = /href=['"]([^'"]+\.pdf)['"][^>]*>(.*?)<\/a>/gi;
                 let match;
                 let idCounter = 1;
@@ -128,26 +123,26 @@ async function performSearch() {
                         }
                     }
                 }
-                
-                document.getElementById('diag-3').innerHTML = `✅ 3. Liens bruts trouvés : ${rawLinksFound}.`;
-                document.getElementById('diag-4').innerHTML = `🏁 4. Cartes IFR validées : ${foundCharts.length - 1}`;
+                document.getElementById('diag-3').innerHTML = `✅ 3. Extraction terminée (${rawLinksFound} trouvés).`;
+                document.getElementById('diag-4').innerHTML = `🏁 4. Validation : ${foundCharts.length - 1} cartes IFR.`;
             } else {
-                 document.getElementById('diag-2').innerHTML = `❌ 2. Contenu vide renvoyé par le proxy.`;
+                document.getElementById('diag-2').innerHTML = `⚠️ 2. Aucune donnée IFR publiée.`;
             }
         } else {
-            document.getElementById('diag-2').innerHTML = `❌ 2. Échec HTTP du proxy (${response.status})`;
+            document.getElementById('diag-2').innerHTML = `❌ 2. Échec HTTP (${response.status}).`;
         }
     } catch (e) {
-        document.getElementById('diag-2').innerHTML = `❌ 2. Crash réseau (Le proxy bloque).`;
+        document.getElementById('diag-2').innerHTML = `❌ 2. Crash réseau.`;
         console.error(e);
     }
 
-    // On fige l'écran 3 secondes pour vous laisser lire, puis on affiche la liste finale !
+    // On laisse l'écran de diagnostic visible juste 600 millisecondes (une demi-seconde) 
+    // pour apprécier le succès visuellement, puis on affiche la liste !
     setTimeout(() => {
         currentCharts = foundCharts;
         currentFilter = 'ALL'; 
         renderCategories();
-    }, 3000);
+    }, 600);
 }
 
 // --- 6. Afficher la liste principale des cartes (AVEC ONGLETS) ---
